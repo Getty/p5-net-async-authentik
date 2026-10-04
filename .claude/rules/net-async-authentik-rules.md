@@ -38,7 +38,7 @@ This rule depends on whether the Agent/Task tool is available to you.
 - **You cannot spawn subagents** (you ARE a `net-async-authentik-*` agent): the delegation lock
   does not apply to you — implement, refactor, debug, and test per these rules.
 
-Behavior-relevant = runtime behavior, the public API (`Net::Async::Authentik`, `::OIDC`, `::Admin`), the sync/async sibling invariant, error handling, tests, performance.
+Behavior-relevant = runtime behavior, the public API (`Net::Async::Authentik`, `::OIDC`, `::API`), the sync/async sibling invariant, error handling, tests, performance.
 Pure prose docs and `Changes` notes are not.
 
 **Only `net-async-authentik-release-manager` commits.** A worker leaves a commit-ready tree and hands its card

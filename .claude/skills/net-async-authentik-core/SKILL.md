@@ -8,17 +8,17 @@ description: Use when working on Net::Async::Authentik — the IO::Async/Future 
 IO::Async-based client for authentik, the async twin of `WWW::Authentik`
 (`~/dev/p5-www-authentik`), a structural sibling of `Net::Async::Keycloak`
 (`~/dev/p5-net-async-keycloak`). **Skeleton state: nothing is implemented yet.** The design
-lives in the sync twin's `docs/superpowers/specs/`; once it exists it overrides the
-planned map below.
+is the sync twin's `docs/superpowers/specs/2026-10-04-www-authentik-design.md` (approved);
+where it and the map below disagree, the design wins.
 
 ## Planned module map
 
 - `Net::Async::Authentik` — Moo class extending `IO::Async::Notifier`: `base_url`, optional
   `application` (slug), optional API token; lazy `http` (`Net::Async::HTTP`, added as
-  child), lazy `oidc` and `admin`.
+  child), lazy `oidc` and `api`.
 - `Net::Async::Authentik::OIDC` — discovery, JWKS, token verification, userinfo,
   introspection, token and device endpoints.
-- `Net::Async::Authentik::Admin` — REST API v3, every method as `_f`, `ensure_*_f` with
+- `Net::Async::Authentik::API` — REST API v3, every method as `_f`, `ensure_*_f` with
   `WWW::Authentik::Diff`.
 - `Net::Async::Authentik::Error` — base; `::Validation`, `::Network`, `::API`, one package
   per file.
