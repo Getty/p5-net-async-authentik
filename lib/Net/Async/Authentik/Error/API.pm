@@ -5,7 +5,7 @@ package Net::Async::Authentik::Error::API;
 use Moo;
 extends 'WWW::Authentik::Error::API', 'Net::Async::Authentik::Error';
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =description
 

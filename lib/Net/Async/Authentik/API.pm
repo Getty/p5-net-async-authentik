@@ -14,7 +14,7 @@ use WWW::Authentik::API;
 use WWW::Authentik::Diff;
 use namespace::autoclean;
 
-our $VERSION = '0.001';
+our $VERSION = '0.002';
 
 =synopsis
 

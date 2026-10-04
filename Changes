@@ -1,5 +1,7 @@
 Revision history for Net-Async-Authentik
 
+{{$NEXT}}
+
 0.001     2026-10-04 18:06:26Z
     - Net::Async::Authentik, the asynchronous twin of WWW::Authentik: a Moo
       class on IO::Async::Notifier with Net::Async::HTTP as a child notifier,
