@@ -217,9 +217,11 @@ subtest 'flows, stages and bindings' => sub {
 };
 
 subtest 'brands, certificates and blueprints' => sub {
-  my $brand = $api->current_brand_f->get;
-  is( $brand->{domain}, 'authentik-default', 'current_brand' );
+  ok( $api->current_brand_f->get, 'current_brand' );
   ok( scalar @{ $api->list_brands_f->get }, 'list_brands' );
+  # the public view cannot be written back; the list is where the key is
+  my ( $brand ) = grep { $_->{default} } @{ $api->list_brands_f->get };
+  ok( $brand && $brand->{brand_uuid}, 'the list carries the brand_uuid' );
   is( $api->update_brand_f( $brand->{brand_uuid}, { branding_title => 'Probe' } )->get->{branding_title}, 'Probe', 'update_brand' );
 
   is( $api->find_certificate_f('authentik Self-signed Certificate')->get->{private_key_available}, 1, 'find_certificate' );

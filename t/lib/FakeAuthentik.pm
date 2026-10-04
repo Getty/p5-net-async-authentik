@@ -375,7 +375,9 @@ sub _api {
   }
   if ( $path eq '/api/v3/core/brands/current/' ) {
     my ( $brand ) = grep { $_->{default} } values %{ $self->{data}{brands} };
-    return $self->_json( 200, $brand );
+    # the public view: no brand_uuid and no domain, so it cannot be written back
+    return $self->_json( 200, { map { $_ => $brand->{$_} }
+      grep { !/\A(brand_uuid|domain|default|attributes)\z/ } keys %$brand } );
   }
   return $self->_json( 405, { detail => 'Method "'.$method.'" not allowed.' } )
     if $path =~ m{\A/api/v3/stages/all/[^/]+/\z} && $method ne 'GET';

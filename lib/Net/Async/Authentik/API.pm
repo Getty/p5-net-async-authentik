@@ -630,6 +630,12 @@ sub delete_blueprint_f { $_[0]->_done_f( DELETE => '/managed/blueprints/'.$_[0]-
 
 =method current_brand_f
 
+The brand that applies to this request, as the public view: it has neither
+C<brand_uuid> nor C<domain>, so it cannot be handed to L</update_brand_f>.
+Take the brand from L</list_brands_f> to change one, as in
+L<WWW::Authentik::API/current_brand>.
+
+
 =method update_brand_f
 
 =method list_certificates_f
