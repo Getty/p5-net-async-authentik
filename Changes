@@ -26,3 +26,7 @@ Revision history for Net-Async-Authentik
       eight lines that reproduce that defect without this distribution
     - Live tests against a real authentik behind AUTHENTIK_LIVE_TEST, with a
       throwaway instance in t/authentik/
+    - The live suite names the device authorization endpoint's own throttle
+      (429 slow_down, 20/hour per client IP in authentik 2026.8.3) instead of
+      dying on an opaque OAuth error; the throwaway docker-compose raises it,
+      the same as in the synchronous twin

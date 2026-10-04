@@ -86,7 +86,11 @@ PERL5LIB=../p5-www-authentik/lib AUTHENTIK_LIVE_TEST=1 \
 
 Everything the suite makes carries a random prefix and is deleted again. A throwaway
 authentik for it: `t/authentik/docker-compose.yml`, with `t/authentik/env.example` for the
-secrets.
+secrets. That compose file raises
+`AUTHENTIK_THROTTLE__PROVIDERS__OAUTH2__DEVICE`: authentik throttles the device
+authorization endpoint itself to 20 requests an hour per client IP and answers 429
+`slow_down` above that, which a handful of runs reach. Against an instance that does not
+raise it, the suite bails out saying so.
 
 ## License
 

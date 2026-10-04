@@ -41,6 +41,10 @@ services:
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
       AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
       AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      # the device authorization endpoint is throttled to 20/hour per client IP
+      # by default and answers 429 slow_down above that; the live suite starts
+      # more device flows than that in an hour
+      AUTHENTIK_THROTTLE__PROVIDERS__OAUTH2__DEVICE: "2000/hour"
     ports:
       - "127.0.0.1:${AUTHENTIK_PORT:-9000}:9000"
     restart: unless-stopped
@@ -64,6 +68,10 @@ services:
       AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
       AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
       AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      # the device authorization endpoint is throttled to 20/hour per client IP
+      # by default and answers 429 slow_down above that; the live suite starts
+      # more device flows than that in an hour
+      AUTHENTIK_THROTTLE__PROVIDERS__OAUTH2__DEVICE: "2000/hour"
     restart: unless-stopped
     shm_size: 512mb
     volumes:

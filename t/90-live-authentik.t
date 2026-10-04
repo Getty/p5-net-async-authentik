@@ -211,7 +211,17 @@ subtest 'OIDC' => sub {
   ok( !$oidc->introspect_f( $tokens->{access_token}, %client )->get->{active}, 'and it is gone' );
   is( error_of { $oidc->userinfo_f( $tokens->{access_token} )->get }->oauth_error, 'invalid_token', 'userinfo refuses it' );
 
-  my $start = $oidc->device_authorization_f( %client, scope => 'openid' )->get;
+  # authentik throttles the device authorization endpoint itself, not just the
+  # token polling RFC 8628 means slow_down for: 20 requests an hour per client
+  # IP, answered as a 429 with that same error code. Without this the whole
+  # file dies on an OAuth error that says nothing about a rate limit.
+  my $start;
+  my $throttled = error_of { $start = $oidc->device_authorization_f( %client, scope => 'openid' )->get };
+  my $status = ref $throttled ? eval { $throttled->http_status } : undef;
+  BAIL_OUT( 'the device authorization endpoint is throttled: authentik allows 20 requests an hour '
+    .'per client IP, raise AUTHENTIK_THROTTLE__PROVIDERS__OAUTH2__DEVICE on the instance' )
+    if $status && $status == 429;
+  die $throttled if $throttled;
   like( $start->{verification_uri_complete}, qr/\Q$start->{user_code}\E/, 'device_authorization' );
   my $pending = error_of { $oidc->device_token_f( device_code => $start->{device_code}, %client )->get };
   is( $pending->oauth_error, 'authorization_pending', 'the first poll is pending' );
