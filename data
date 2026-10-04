@@ -1,0 +1,16 @@
+---
+claimed_at: 2026-10-04T08:06:43Z
+claimed_by: frank-auth
+class: standard
+created: 2026-10-04T04:49:05Z
+id: 1
+priority: high
+started: 2026-10-04T07:10:46Z
+status: review
+tags:
+- needs:p5-www-authentik#2
+title: 'Phase 1: mirror WWW::Authentik with _f methods'
+updated: 2026-10-04T08:06:43Z
+---
+
+Follows the sync twin after its phase 1, as Net::Async::Keycloak followed WWW::Keycloak: build_request/read_response and Diff from the twin, tests ported from the sync suite.
