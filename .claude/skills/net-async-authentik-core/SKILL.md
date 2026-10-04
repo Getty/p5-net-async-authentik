@@ -7,11 +7,13 @@ description: Use when working on Net::Async::Authentik — the IO::Async/Future 
 
 IO::Async-based client for authentik, the async twin of `WWW::Authentik`
 (`~/dev/p5-www-authentik`), a structural sibling of `Net::Async::Keycloak`
-(`~/dev/p5-net-async-keycloak`). **Skeleton state: nothing is implemented yet.** The design
-is the sync twin's `docs/superpowers/specs/2026-10-04-www-authentik-design.md` (approved);
-where it and the map below disagree, the design wins.
+(`~/dev/p5-net-async-keycloak`). **Phase 1 is built** against authentik 2026.8.3. The
+design is the sync twin's `docs/superpowers/specs/2026-10-04-www-authentik-design.md`
+(approved) and this repo's plan is
+`docs/superpowers/plans/2026-10-04-net-async-authentik-phase-1.md`; where they and the map
+below disagree, the design wins.
 
-## Planned module map
+## Module map
 
 - `Net::Async::Authentik` — Moo class extending `IO::Async::Notifier`: `base_url`, optional
   `application` (slug), optional API token; lazy `http` (`Net::Async::HTTP`, added as
@@ -32,6 +34,15 @@ where it and the map below disagree, the design wins.
   written here.
 - **Every method returns a Future and never blocks.** No `->get` in library code, no
   synchronous HTTP client.
+- **Nothing throws, not even a wrong argument.** A validation error fails the future, so
+  one `else` catches it next to a refused request.
+- **A dropped future still does the work.** The async sub has begun and the request is
+  held by the HTTP client, so authentik is written to and the answer goes nowhere, with a
+  "lost its returning future" warning. The POD says: hold it, or `->retain` it.
+- **`Net::Async::HTTP` needs none of LWP's workarounds.** It does not announce the `TE`
+  connection token, so authentik answers every request; `max_redirects => 0` hands a 302
+  back as an answer; `fail_on_error => 0` lets `read_response` make the error. A refused
+  connection and a timeout fail with plain strings, not objects.
 - **Notifier construction.** `IO::Async::Notifier->new` hands every key to `configure`,
   which croaks on unknown keys — strip own attributes in `FOREIGNBUILDARGS`, as
   `Net::Async::Keycloak` does.

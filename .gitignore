@@ -36,3 +36,6 @@ config.yml
 !.claude/skilletor.json
 !.claude/.gitignore
 .envrc.local
+
+# authentik test instance secrets
+.env
