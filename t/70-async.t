@@ -206,6 +206,66 @@ subtest 'a future nobody holds still does the work' => sub {
   is( $fake->writes, 1, 'and writes nothing more' );
 };
 
+subtest 'nothing throws, not even a body that cannot be encoded' => sub {
+  my $fake = FakeAuthentik->new;
+  my $api  = Net::Async::Authentik->new( base_url => $fake->base, token => $fake->token,
+    http => FakeHTTP->new( fake => $fake ) )->api;
+  # the JSON codec dies on this, and building the request happens before any
+  # await, so without care it would throw out of a method that promised a future
+  my $future = eval { $api->call_f( POST => '/core/groups/', { name => 'x', bad => sub {1} } ) };
+  ok( $future, 'call_f with an unencodable body gives a future back' );
+  ok( $future && $future->is_failed, 'a failed one' );
+  isa_ok( ( $future->failure )[0], 'Net::Async::Authentik::Error::Validation' ) if $future;
+  like( ( $future->failure )[0]->message, qr/could not be built/, 'saying what went wrong' ) if $future;
+
+  my $direct = eval { $api->send_request_f( POST => 'http://x/', json => { bad => sub {1} } ) };
+  ok( $direct && $direct->is_failed, 'and so does send_request_f on its own' );
+};
+
+subtest 'a lookup that fails is not a missing object' => sub {
+  # a refused request during ensure_binding_f used to be reported as "no flow"
+  { package RefusedHTTP; use Future;
+    sub new { bless {}, shift }
+    sub do_request { Future->fail('127.0.0.1:9 - connect: Connection refused') } }
+  my $api = Net::Async::Authentik->new( base_url => 'http://127.0.0.1:9', token => 't',
+    http => RefusedHTTP->new )->api;
+  my $future = $api->ensure_binding_f( flow => 'some-flow', stage => 'some-stage', order => 10 );
+  ok( $future->is_failed, 'it fails' );
+  my ( $error ) = $future->failure;
+  isa_ok( $error, 'Net::Async::Authentik::Error::Network', 'with the real reason' );
+  unlike( $error->message, qr/no flow/, 'not as a missing flow' );
+};
+
+subtest 'an argument list that does not make pairs' => sub {
+  # on Future::AsyncAwait 0.71 a suspended frame holding a reference corrupts
+  # the heap at exit, and an odd-sized list is the easiest way for a caller to
+  # put one there by accident. See docs/future-asyncawait-0.71-crash.pl.
+  my $fake = FakeAuthentik->new;
+  probe_instance($fake);
+  my $ak = Net::Async::Authentik->new( base_url => $fake->base, application => 'probe-app',
+    token => $fake->token, http => FakeHTTP->new( fake => $fake ) );
+  my %odd = (
+    'device_authorization_f' => $ak->oidc->device_authorization_f( {} ),
+    'authorization_url_f'    => $ak->oidc->authorization_url_f( {} ),
+    'introspect_f'           => $ak->oidc->introspect_f( 'tok', {} ),
+    'revoke_f'               => $ak->oidc->revoke_f( 'tok', {} ),
+    'verify_token_f'         => $ak->oidc->verify_token_f( 'tok', {} ),
+    'ensure_user_f'          => $ak->api->ensure_user_f( {} ),
+    'ensure_binding_f'       => $ak->api->ensure_binding_f( {} ),
+    'ensure_stage_f'         => $ak->api->ensure_stage_f( password => {} ),
+    'list_bindings_f'        => $ak->api->list_bindings_f( {} )
+  );
+  for my $name ( sort keys %odd ) {
+    ok( $odd{$name}->is_failed, $name.': refused, not taken apart' );
+    isa_ok( ( $odd{$name}->failure )[0], 'Net::Async::Authentik::Error::Validation', $name );
+    like( ( $odd{$name}->failure )[0]->message, qr/do not make pairs/, $name.': says what is wrong' );
+  }
+
+  # and a well-formed call with the same reference still works
+  ok( $ak->api->ensure_group_f( name => 'pairs', attributes => { a => 'b' } )->get->{object},
+    'a reference in a value is fine' );
+};
+
 subtest 'the same answers as the synchronous client' => sub {
   # the two share build_request, read_response and Diff, so a failure here
   # means they have drifted
@@ -215,6 +275,34 @@ subtest 'the same answers as the synchronous client' => sub {
   is( $api->diff_class, 'WWW::Authentik::Diff', 'the comparison is the synchronous one' );
   is_deeply( [ sort keys %{ $api->resolvable_fields } ], [ sort keys %{ WWW::Authentik::API->resolvable_fields } ],
     'and so is the resolution table' );
+  is( $api->uuid_pattern, WWW::Authentik::API->uuid_pattern, 'and both identifier shapes' );
+  is( $api->integer_pattern, WWW::Authentik::API->integer_pattern, 'the other one too' );
+
+  # every public method of the synchronous API exists here, with _f where it
+  # does I/O. `ua` is the one on purpose: this client has `http` instead.
+  my %on_purpose = map { $_ => 1 } qw( ua );
+  my @missing;
+  for my $name ( sort keys %WWW::Authentik::API:: ) {
+    next if $name =~ /\A_/ || $on_purpose{$name};
+    no strict 'refs';
+    next unless defined &{"WWW::Authentik::API::$name"};
+    next if Net::Async::Authentik::API->can( $name.'_f' ) || Net::Async::Authentik::API->can($name);
+    push @missing, $name;
+  }
+  is_deeply( \@missing, [], 'no method of the synchronous API is missing here' )
+    or diag 'missing: '.join ', ', @missing;
+
+  my @extra;
+  for my $name ( sort keys %Net::Async::Authentik::API:: ) {
+    next unless $name =~ /\A([a-z][a-z0-9_]*)_f\z/;
+    my $sync = $1;
+    next if $sync =~ /\A_/;
+    no strict 'refs';
+    next unless defined &{"Net::Async::Authentik::API::$name"};
+    push @extra, $name unless WWW::Authentik::API->can($sync);
+  }
+  is_deeply( \@extra, [], 'and nothing here was invented without the synchronous twin' )
+    or diag 'extra: '.join ', ', @extra;
 
   my $error = error_of { $api->create_user_f( { username => 'x' } )->get };
   isa_ok( $error, 'WWW::Authentik::Error::API', 'an API error is the synchronous class as well' );

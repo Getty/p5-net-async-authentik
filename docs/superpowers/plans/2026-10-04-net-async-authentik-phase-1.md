@@ -540,6 +540,71 @@ Commit: `Add the live suite and bring the docs to the built state`.
 - **Abschnitt 13.1** → die vier Gefahren oben neu geprüft; `TE` entfällt, der Rest trägt.
 - **Abschnitt 13.2** → `verify_token_f` mit `client_id`, Audience-Pflicht und `any_audience`; `resolve_f` mit denselben Weigerungen; `find_*_f(undef)` scheitert; der Vergleich ist derselbe.
 
-## Nach dem Bau geklärt
+## Nach dem Bau geklärt (2026-10-04)
 
-(Wird nach dem unabhängigen Review ausgefüllt.)
+Ein unabhängiger Review ohne Bau-Kontext, mit Proben gegen das laufende authentik 2026.8.3,
+hat sechs Punkte gefunden. Fünf sind behoben und durch Tests festgehalten; der sechste ist
+ein Fehler in Future::AsyncAwait, den diese Dist nicht beheben kann.
+
+### Der Absturz bei Programmende — Future::AsyncAwait 0.71, nicht diese Dist
+
+Der Review meldete einen reproduzierbaren Absturz des Interpreters (`double free or
+corruption`, `free(): invalid pointer`, Segmentation Fault) beim Abbrechen laufender
+Futures. Die Nachprüfung hat ihn bestätigt und dann anders eingeordnet, als er gemeldet war:
+
+- **Mit dem Abbrechen hat er nichts zu tun.** Derselbe Aufruf ohne `cancel` stürzt ebenso ab.
+- **Der Auslöser ist eine Referenz im Rahmen einer bei Programmende noch angehaltenen
+  `async sub`.** Mit einer Zeichenkette statt der Referenz ist derselbe Ablauf sauber.
+- **Er liegt in der globalen Aufräumphase**, nach der Arbeit des Programms: die Ausgabe
+  erscheint noch, der Exit-Status ist 134 oder 139.
+- **Weder `Net::Async::HTTP` noch `IO::Async` noch Moo sind beteiligt.** Acht Zeilen reines
+  Future::AsyncAwait reichen; sie stehen als `docs/future-asyncawait-0.71-crash.pl` im Repo,
+  mitsamt dem, was daran etwas ändert und was nicht.
+- **Der Aufrufer kann sich nicht dagegen schützen**, indem er das Future hält oder
+  `->retain` ruft — nur dadurch, dass er es fertig werden lässt.
+
+0.71 ist die neueste Fassung auf CPAN, eine Pinnung hilft also nicht. Was die Dist tut:
+`pairs_or_fail` in `Net::Async::Authentik::Role::HTTP` prüft bei jeder `async sub`, die eine
+Hash-Liste einsammelt, vorher die Form der Argumentliste und scheitert das Future bei einer
+ungeraden — das war der leichteste Weg, versehentlich eine Referenz in so einen Rahmen zu
+bekommen. Und die POD der Fassade und das README sagen jetzt ausdrücklich, dass jedes Future
+vor Programmende fertig werden muss, mit dem Verweis auf den Reproducer. Für PEVANS
+aufzubereiten und zu melden: Gettys Entscheidung, nicht meine.
+
+### Behoben
+
+- **`send_request_f` konnte werfen.** `build_request` stand außerhalb des `eval`, und ein
+  Rumpf, den der JSON-Kodierer nicht kann, ließ `call_f` eine Exception werfen statt das
+  Future scheitern — gegen die zugesagte Regel, dass hier nichts wirft. Jetzt ein
+  Validation-Fehler im Future.
+- **`ensure_binding_f` meldete jeden Fehler als „no flow“.** Ein `eval` um die Suche fing
+  auch eine abgelehnte Verbindung, eine 401 und eine 500 und machte daraus die Behauptung,
+  der Flow gebe es nicht. Jetzt wird nur ein ausbleibender Treffer zum Validation-Fehler,
+  alles andere bleibt, was es ist.
+- **`uuid_pattern` und `integer_pattern` fehlten.** Die Sync-Dist hat sie seit `45325ea` als
+  öffentliche Klassenmethoden, der Zwilling benutzte sie, legte sie aber nicht offen. Jetzt
+  delegiert er sie, und ein Test vergleicht beide Klassen Methode für Methode in beide
+  Richtungen.
+- **`_detail_f` konnte mit der leeren Zeichenkette sterben.** Es unterschied Erfolg und
+  Fehler an der Wahrheit des Ergebnisses; eine Antwort ohne Rumpf führte zu `die ''`. Jetzt
+  entscheidet, ob `eval` gescheitert ist.
+- **`_fetch_jwks_f` prüfte nicht, was zurückkam.** Ein Rumpf, der kein JSON-Objekt ist, ließ
+  den Zwischenspeicher leer, und jede Prüfung holte die Schlüssel erneut. Jetzt dieselbe
+  Prüfung wie beim Discovery-Dokument drei Zeilen darüber.
+
+### Geprüft und in Ordnung befunden
+
+Der geteilte Abruf, wenn der erste **scheitert** (zweimal hintereinander, kein Festfahren);
+alle Aufrufer brechen ab (der nächste bekommt eine frische Sicht); die Abbildung aller sechs
+Fehlerformen von `Net::Async::HTTP` (DNS, abgelehnt, Zeitüberschreitung, kaputte Statuszeile,
+Verbindungsabbruch im Rumpf, Abbruch vor dem Kopf) auf `Error::Network`, jeweils als Objekt;
+„nichts wirft“ über rund 70 Methoden mal sechs Argumentformen; die Lebensdauer (nach
+`$loop->remove` wird das Objekt freigegeben, kein festgehaltenes `$self`); `for_application`;
+und `ensure_*` gegen das echte authentik durch **beide** Clients nacheinander, die sich einig
+sind, was eine Änderung ist.
+
+### Vom Review nicht erreicht
+
+Ein echter OIDC-Durchlauf gegen die Instanz, die Live-Suite und `dzil build`. Alles drei ist
+hier gelaufen: `prove -lr t`, `dzil test --all` und `t/90-live-authentik.t` zweimal
+hintereinander.

@@ -67,9 +67,12 @@ drift apart.
 
 ## Two things to know
 
-**Hold the future you get back.** Dropping it does not undo anything: the work runs to the
-end, authentik is written to, and the answer goes nowhere. Use `->retain` when you really
-mean to start something and not wait.
+**Hold the future you get back, and let it finish.** Dropping it does not undo anything:
+the work runs to the end, authentik is written to, and the answer goes nowhere. And a
+future still pending when the process exits can take the interpreter down in global
+destruction — a defect in Future::AsyncAwait 0.71, not in this distribution;
+`docs/future-asyncawait-0.71-crash.pl` reproduces it in eight lines without it. Run the
+loop until your futures are ready.
 
 **Nothing throws.** A wrong argument fails the future, just as a refused request does, so
 one `else` catches both. Every error is also the matching `WWW::Authentik::Error` class.

@@ -58,6 +58,18 @@ answer goes nowhere, with a "lost its returning future" warning as the only
 sign. To start something and not wait for it, say so with
 C<< ->retain >>.
 
+B<And let every future finish before the process ends.> A future of this
+distribution that is still pending at exit can take the interpreter down
+with C<double free or corruption> or a segmentation fault — in global
+destruction, after the program's own work is done, so the damage is an exit
+status rather than lost data. This is a defect in Future::AsyncAwait 0.71,
+the newest release at the time of writing: an C<async sub> suspended at exit
+whose saved frame holds a reference argument corrupts the heap. Eight lines
+reproduce it with none of this distribution involved;
+F<docs/future-asyncawait-0.71-crash.pl> has them, together with what does
+and does not change it. Holding the future does not help and neither does
+C<< ->retain >>; running the loop until the future is ready does.
+
 =head2 Coming from WWW::Authentik
 
 Two return values differ from what a Keycloak user would expect, and

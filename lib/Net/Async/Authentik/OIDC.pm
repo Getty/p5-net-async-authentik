@@ -191,8 +191,13 @@ sub jwks_f {
 
 async sub _fetch_jwks_f {
   my ( $self ) = @_;
-  my $uri = await $self->jwks_uri_f;
-  return $self->_jwks( ( await $self->send_request_f( GET => $uri ) )->{data} );
+  my $uri  = await $self->jwks_uri_f;
+  my $data = ( await $self->send_request_f( GET => $uri ) )->{data};
+  # without this the cache stays empty and every verification fetches again,
+  # which is what the sibling above already guards against
+  die $self->validation_error_class->new( message => 'the keys of '.$self->_url.' came back as no JSON object' )
+    unless ref $data eq 'HASH';
+  return $self->_jwks($data);
 }
 
 =method jwks_f
@@ -220,7 +225,10 @@ under the bare instance URL.
 =cut
 
 async sub verify_token_f {
-  my ( $self, $token, %opt ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 2, @_ );
+  return await $_[0]->fail_validation('verify_token_f: the arguments after the first 1 do not make pairs') unless $ok;
+  my ( $self, $token ) = @_;
+  my %opt = %$pairs;
   die $self->validation_error_class->new( message => 'verify_token needs a token' )
     unless defined $token && length $token;
   die $self->validation_error_class->new( message => "verify_token: type must be 'access' or 'id'" )
@@ -303,17 +311,24 @@ async sub userinfo_f {
   my ( $self, $access_token ) = @_;
   die $self->validation_error_class->new( message => 'userinfo needs an access token' )
     unless defined $access_token && length $access_token;
-  return ( await $self->send_request_f( GET => await( $self->userinfo_endpoint_f ), bearer => $access_token ) )->{data};
+  my $endpoint = await $self->userinfo_endpoint_f;
+  return ( await $self->send_request_f( GET => $endpoint, bearer => $access_token ) )->{data};
 }
 
 async sub introspect_f {
-  my ( $self, $token, %client ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 2, @_ );
+  return await $_[0]->fail_validation('introspect_f: the arguments after the first 1 do not make pairs') unless $ok;
+  my ( $self, $token ) = @_;
+  my %client = %$pairs;
   return await $self->_token_call_f( await( $self->introspection_endpoint_f ),
     { token => $token, defined $client{token_type_hint} ? ( token_type_hint => $client{token_type_hint} ) : () }, %client );
 }
 
 async sub revoke_f {
-  my ( $self, $token, %client ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 2, @_ );
+  return await $_[0]->fail_validation('revoke_f: the arguments after the first 1 do not make pairs') unless $ok;
+  my ( $self, $token ) = @_;
+  my %client = %$pairs;
   await $self->_token_call_f( await( $self->revocation_endpoint_f ),
     { token => $token, defined $client{token_type_hint} ? ( token_type_hint => $client{token_type_hint} ) : () }, %client );
   return 1;
@@ -325,8 +340,12 @@ sub exchange_authorization_code_f { my ( $self, %arg ) = @_; $self->_grant_f( au
 sub device_token_f                { my ( $self, %arg ) = @_; $self->_grant_f( 'urn:ietf:params:oauth:grant-type:device_code' => ['device_code'], %arg ) }
 
 async sub device_authorization_f {
-  my ( $self, %arg ) = @_;
-  return await $self->_token_call_f( await( $self->device_endpoint_f ),
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('device_authorization_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %arg = %$pairs;
+  my $endpoint = await $self->device_endpoint_f;
+  return await $self->_token_call_f( $endpoint,
     { defined $arg{scope} ? ( scope => $arg{scope} ) : () }, %arg );
 }
 
@@ -353,7 +372,10 @@ C<oauth_error> is C<authorization_pending>.
 =cut
 
 async sub authorization_url_f {
-  my ( $self, %arg ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('authorization_url_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %arg = %$pairs;
   die $self->validation_error_class->new( message => 'authorization_url needs a client_id' ) unless defined $arg{client_id};
   die $self->validation_error_class->new( message => 'authorization_url needs a redirect_uri' ) unless defined $arg{redirect_uri};
   my $uri = URI->new( await $self->authorization_endpoint_f );

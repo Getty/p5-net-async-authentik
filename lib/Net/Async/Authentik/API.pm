@@ -80,12 +80,19 @@ the synchronous client's, so the two cannot drift.
 =cut
 
 sub resolvable_fields { WWW::Authentik::API->resolvable_fields }
+sub uuid_pattern      { WWW::Authentik::API->uuid_pattern }
+sub integer_pattern   { WWW::Authentik::API->integer_pattern }
 
 =method resolvable_fields
 
-The table L</resolve_f> works from, taken from L<WWW::Authentik::API> rather
-than written again, so that what counts as an identifier is decided in one
-place. The lookup method named there is used with C<_f> appended.
+=method uuid_pattern
+
+=method integer_pattern
+
+The table L</resolve_f> works from and the two shapes it takes for an
+identifier, all three taken from L<WWW::Authentik::API> rather than written
+again, so that what counts as an identifier is decided in one place. The
+lookup method named in the table is used with C<_f> appended.
 
 =cut
 
@@ -160,11 +167,13 @@ sub _need {
 
 async sub _detail_f {
   my ( $self, $path ) = @_;
-  my $object = eval { await $self->_data_f( GET => $path ) };
-  my $error  = $@;
-  return $object if $object;
-  return undef if blessed $error && $error->isa('WWW::Authentik::Error::API') && $error->is_not_found;
-  die $error;
+  my ( $object, $failed );
+  eval { $object = await $self->_data_f( GET => $path ); 1 } or $failed = $@;
+  # an answer with no body is not a failure, and $@ is empty there: telling
+  # the two apart on the truth of $object would die with the empty string
+  return $object unless defined $failed;
+  return undef if blessed $failed && $failed->isa('WWW::Authentik::Error::API') && $failed->is_not_found;
+  die $failed;
 }
 
 ####  instance
@@ -558,7 +567,10 @@ C<all> is refused, because that endpoint can only be read.
 ####  flow stage bindings
 
 async sub list_bindings_f {
-  my ( $self, %q ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('list_bindings_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %q = %$pairs;
   # authentik wants the flow's UUID in target and answers a slug with a field
   # error, so flow => $slug is the readable way in
   $q{target} = await $self->_flow_pk_f( delete $q{flow} ) if defined $q{flow};
@@ -567,7 +579,7 @@ async sub list_bindings_f {
 
 async sub _flow_pk_f {
   my ( $self, $flow ) = @_;
-  return $flow if $flow =~ WWW::Authentik::API->uuid_pattern;
+  return $flow if $flow =~ $self->uuid_pattern;
   my $found = await $self->find_flow_f($flow);
   die $self->validation_error_class->new( message => 'no flow "'.$flow.'"' ) unless $found;
   return $found->{pk};
@@ -725,7 +737,10 @@ async sub _ensure_f {
 }
 
 async sub ensure_user_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_user_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_user needs a username') unless defined $rep{username};
   my $wanted   = await $self->resolve_f( \%rep );
   my $password = delete $wanted->{password};
@@ -741,7 +756,10 @@ async sub ensure_user_f {
 }
 
 async sub ensure_group_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_group_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_group needs a name') unless defined $rep{name};
   my $wanted = await $self->resolve_f( \%rep );
   return await $self->_ensure_f(
@@ -753,7 +771,10 @@ async sub ensure_group_f {
 }
 
 async sub ensure_token_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_token_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_token needs an identifier') unless defined $rep{identifier};
   # authentik ignores expires and sets it from default_token_duration, so a
   # wanted value could never be reached and would report updated for ever
@@ -773,7 +794,10 @@ async sub ensure_token_f {
 }
 
 async sub ensure_application_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_application_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_application needs a slug') unless defined $rep{slug};
   my $wanted = await $self->resolve_f( \%rep );
   return await $self->_ensure_f(
@@ -785,7 +809,10 @@ async sub ensure_application_f {
 }
 
 async sub ensure_oauth2_provider_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_oauth2_provider_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_oauth2_provider needs a name') unless defined $rep{name};
   my $wanted = await $self->resolve_f( \%rep );
   return await $self->_ensure_f(
@@ -805,7 +832,10 @@ async sub ensure_oauth2_provider_f {
 }
 
 async sub ensure_scope_mapping_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_scope_mapping_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_scope_mapping needs a name') unless defined $rep{name};
   my $wanted = await $self->resolve_f( \%rep );
   return await $self->_ensure_f(
@@ -817,7 +847,10 @@ async sub ensure_scope_mapping_f {
 }
 
 async sub ensure_flow_f {
-  my ( $self, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_flow_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_flow needs a slug') unless defined $rep{slug};
   my $wanted = await $self->resolve_f( \%rep );
   return await $self->_ensure_f(
@@ -829,7 +862,10 @@ async sub ensure_flow_f {
 }
 
 async sub ensure_stage_f {
-  my ( $self, $type, %rep ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 2, @_ );
+  return await $_[0]->fail_validation('ensure_stage_f: the arguments after the first 1 do not make pairs') unless $ok;
+  my ( $self, $type ) = @_;
+  my %rep = %$pairs;
   return await $self->fail_validation('ensure_stage needs a name') unless defined $rep{name};
   my ( $path, $bad ) = $self->_stage_path($type);
   return await $bad if $bad;
@@ -858,15 +894,25 @@ async sub ensure_stage_f {
 }
 
 async sub ensure_binding_f {
-  my ( $self, %arg ) = @_;
+  my ( $ok, $pairs ) = __PACKAGE__->pairs_or_fail( 1, @_ );
+  return await $_[0]->fail_validation('ensure_binding_f: the arguments after the first 0 do not make pairs') unless $ok;
+  my ( $self ) = @_;
+  my %arg = %$pairs;
   for my $needed (qw( flow stage order )) {
     return await $self->fail_validation( 'ensure_binding needs '.$needed ) unless defined $arg{$needed};
   }
   my %wanted = %arg;
-  my $flow   = eval { await $self->_flow_pk_f( delete $wanted{flow} ) };
-  return await $self->fail_validation( 'ensure_binding: no flow "'.$arg{flow}.'"' ) unless defined $flow;
+  # only "there is no such flow" becomes a validation error here; a refused
+  # request or a 500 has to stay what it is instead of being reported as a
+  # missing flow
+  my $flow = delete $wanted{flow};
+  unless ( $flow =~ $self->uuid_pattern ) {
+    my $found = await $self->find_flow_f($flow);
+    return await $self->fail_validation( 'ensure_binding: no flow "'.$flow.'"' ) unless $found;
+    $flow = $found->{pk};
+  }
   my $stage = $wanted{stage};
-  unless ( $stage =~ WWW::Authentik::API->uuid_pattern ) {
+  unless ( $stage =~ $self->uuid_pattern ) {
     my $found = await $self->find_stage_f($stage);
     return await $self->fail_validation( 'ensure_binding: no stage "'.$stage.'"' ) unless $found;
     $stage = $found->{pk};

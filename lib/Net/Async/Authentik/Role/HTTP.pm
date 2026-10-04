@@ -57,9 +57,39 @@ a wrong argument fails the future the caller is already holding.
 
 =cut
 
+sub pairs_or_fail {
+  my ( $self, $positional, @args ) = @_;
+  # An odd-sized list where a key belongs is a mistake in the caller, and on
+  # Future::AsyncAwait 0.71 a very expensive one: a suspended async sub whose
+  # pad holds a hash built from such a list corrupts the heap when the future
+  # is dropped - "double free or corruption", no exception, no stack. Nine
+  # lines reproduce it without this distribution; see the plan under "Nach
+  # dem Bau geklaert". So the shape is checked before the hash is built.
+  return ( 1, { @args[ $positional .. $#args ] } ) if ( @args - $positional ) % 2 == 0;
+  return ( 0, undef );
+}
+
+=method pairs_or_fail
+
+    my ( $ok, $arg ) = $self->pairs_or_fail( 1, @_ );
+    return $self->fail_validation('...') unless $ok;
+
+Takes the number of positional arguments and the whole argument list, and
+gives back whether what follows them makes pairs, and those pairs as a hash
+reference. Every method that would hold such a hash across an C<await> asks
+first: Future::AsyncAwait 0.71 corrupts memory when a suspended frame holds a
+hash built from an odd-sized list whose dangling element is a reference.
+
+=cut
+
 sub send_request_f {
   my ( $self, $method, $url, %arg ) = @_;
-  my $request = $self->build_request( $method, $url, %arg );
+  # building it can die too: a body the JSON codec cannot encode. Nothing in
+  # this distribution throws, so that becomes a failed future as well.
+  my $request = eval { $self->build_request( $method, $url, %arg ) };
+  return Future->fail( $self->validation_error_class->new(
+    message => $method.' '.$url.': the request could not be built ('.( $@ =~ s/ at \S+ line \d+.*//sr ).')' ) )
+    unless $request;
   # Net::Async::HTTP dies instead of failing when it is in no loop
   my $sent = eval { $self->http->do_request( request => $request ) };
   return Future->fail( $self->network_error_class->new( message => $method.' '.$url.': could not send ('
@@ -88,6 +118,10 @@ Sends one request. Fails with L<Net::Async::Authentik::Error::Network> when
 no answer came back and with L<Net::Async::Authentik::Error::API> for any
 status of 400 and above. Anything below 400 is an answer, including the 302
 authentik gives where it wants a browser.
+
+A body the JSON codec cannot encode fails with
+L<Net::Async::Authentik::Error::Validation>, rather than throwing out of a
+method the caller expected a future from.
 
 =cut
 

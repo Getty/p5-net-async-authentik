@@ -19,5 +19,10 @@ Revision history for Net-Async-Authentik
     - Errors are also the matching WWW::Authentik::Error class, so code
       written for the synchronous client catches them unchanged; nothing is
       thrown, a wrong argument fails the future
+    - Every async method checks the shape of its argument list before it
+      builds a hash from it: on Future::AsyncAwait 0.71 a suspended frame
+      holding a reference corrupts the heap at exit, and an odd-sized list
+      was the easiest way in. docs/future-asyncawait-0.71-crash.pl has the
+      eight lines that reproduce that defect without this distribution
     - Live tests against a real authentik behind AUTHENTIK_LIVE_TEST, with a
       throwaway instance in t/authentik/
