@@ -6,6 +6,8 @@ use lib 't/lib';
 
 use FakeAuthentik;
 use FakeHTTP;
+use Future;
+use HTTP::Response;
 use Net::Async::Authentik;
 
 sub error_of (&) { my ( $code ) = @_; eval { $code->(); 1 } ? undef : $@ }
@@ -232,6 +234,26 @@ subtest 'brands, certificates and blueprints' => sub {
   is( $api->apply_blueprint_f( $blueprint->{pk} )->get->{status}, 'successful', 'apply_blueprint' );
   is( $api->get_blueprint_f( $blueprint->{pk} )->get->{status}, 'successful', 'get_blueprint' );
   ok( $api->delete_blueprint_f( $blueprint->{pk} )->get, 'delete_blueprint' );
+};
+
+subtest 'a redirect is an error' => sub {
+  package RedirectHTTP { sub do_request {
+    my $r = HTTP::Response->new( 301, 'Moved Permanently' );
+    $r->header( Location => 'https://auth.example/api/v3/x' );
+    return Future->done($r);
+  } }
+  my $moved = Net::Async::Authentik->new( base_url => 'http://auth.example', token => 't', http => bless( {}, 'RedirectHTTP' ) )->api;
+  for my $case (
+    [ call_f        => sub { $moved->call_f( GET => '/core/users/' )->get } ],
+    [ list_users_f  => sub { $moved->list_users_f->get } ],
+    [ version_f     => sub { $moved->version_f->get } ],
+    [ create_user_f => sub { $moved->create_user_f( { username => 'a', name => 'A' } )->get } ],
+  ) {
+    my $error = error_of { $case->[1]->() };
+    isa_ok( $error, 'Net::Async::Authentik::Error::API', $case->[0] );
+    is( $error->http_status, 301, "$case->[0]: status" ) if $error;
+    like( $error ? $error->message : '', qr{redirected.*https://auth\.example/api/v3/x}, "$case->[0]: names the Location" );
+  }
 };
 
 done_testing;

@@ -1,6 +1,9 @@
 Revision history for Net-Async-Authentik
 
 {{$NEXT}}
+    - Net::Async::Authentik::API::call_f fails with Net::Async::Authentik::Error::API
+      for a 3xx answer, naming the Location, instead of resolving with an empty
+      result; mirrors WWW::Authentik::API::call
 
 0.001     2026-10-04 18:06:26Z
     - Net::Async::Authentik, the asynchronous twin of WWW::Authentik: a Moo

@@ -111,7 +111,21 @@ sub call_f {
   return $self->fail_validation( __PACKAGE__.' needs an API token' ) unless $self->has_token && length $self->token;
   $path = '/'.$path unless $path =~ m{\A/};
   my %arg = defined $body ? ( json => $body ) : ();
-  return $self->send_request_f( $method, $self->api_url.$path, %arg, bearer => $self->token );
+  my $url = $self->api_url.$path;
+  return $self->send_request_f( $method, $url, %arg, bearer => $self->token )->then( sub {
+    my ( $result ) = @_;
+    # the REST API never answers a redirect itself: a 3xx means something in
+    # front of authentik (http to https, a login page, another host) took the
+    # request, and nothing was written
+    return Future->fail( $self->api_error_class->new(
+      message     => $method.' '.$url.' was redirected: '.$result->{status}
+        .( defined $result->{location} ? ' to '.$result->{location} : '' )
+        .' - check base_url',
+      http_status => $result->{status},
+      api_message => 'redirected'.( defined $result->{location} ? ' to '.$result->{location} : '' ),
+    ) ) if $result->{status} >= 300;
+    return Future->done($result);
+  } );
 }
 
 =method call_f
@@ -119,8 +133,11 @@ sub call_f {
     my $result = await $api->call_f( GET => '/core/users/?username=alice' );
     my $result = await $api->call_f( POST => '/core/groups/', { name => 'staff' } );
 
-One request against the API, as C<call> in L<WWW::Authentik::API>. Mind the
-trailing slash: authentik answers a path without one with 404.
+One request against the API, as C<call> in L<WWW::Authentik::API>. Fails with
+L<Net::Async::Authentik::Error::API> for a redirect (3xx) as well as for 400
+and above: the REST API does not redirect, so a redirect means a proxy or a
+wrong C<base_url> sits in front of it, and the message names the C<Location>.
+Mind the trailing slash: authentik answers a path without one with 404.
 
 =cut
 
