@@ -13,6 +13,22 @@ design is the sync twin's `docs/superpowers/specs/2026-10-04-www-authentik-desig
 `docs/superpowers/plans/2026-10-04-net-async-authentik-phase-1.md`; where they and the map
 below disagree, the design wins.
 
+## The delegation model — why the main agent delegates
+
+Four roles: `net-async-authentik-worker` (implement, refactor, debug),
+`net-async-authentik-test-writer` (tests), `net-async-authentik-release-manager`
+(commit, `Changes`, card → done, pre-release audit), `net-async-authentik-doc-writer`
+(POD). All four get their skills force-loaded via `briefing.skills`. The orchestrating
+main agent gets **no briefing** — it coordinates, inspects, plans, reviews diffs, runs
+tests and edits non-behavioral docs, and delegates anything behavior-relevant here.
+Reason: only the briefed agents see the sync/async twin invariant and the
+`WWW::Authentik` dependency contract in context; an unbriefed hand inside `lib/` would
+break exactly those. When in doubt, delegate.
+
+Behavior-relevant = runtime behavior, the public API (`Net::Async::Authentik`, `::OIDC`,
+`::API`), the sync/async sibling invariant, error handling, tests, performance. Pure prose
+docs and `Changes` notes are not.
+
 ## Module map
 
 - `Net::Async::Authentik` — Moo class extending `IO::Async::Notifier`: `base_url`, optional

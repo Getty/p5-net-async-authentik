@@ -39,3 +39,6 @@ config.yml
 
 # authentik test instance secrets
 .env
+
+# Claude Code worktrees (claude --worktree / isolated agents) -- never commit
+/.claude/worktrees/
