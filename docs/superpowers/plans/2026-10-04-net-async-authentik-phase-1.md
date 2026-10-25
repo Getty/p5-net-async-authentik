@@ -2,81 +2,81 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `Net::Async::Authentik` Phase 1 bauen: den asynchronen Zwilling von `WWW::Authentik` auf `IO::Async` und `Future`, jede öffentliche Methode mit `_f`, gleiche Klassen, gleiche Fehler, gleiches Verhalten gegen dasselbe authentik.
+**Goal:** Build `Net::Async::Authentik` phase 1: the asynchronous twin of `WWW::Authentik` on `IO::Async` and `Future`, every public method with `_f`, same classes, same errors, same behavior against the same authentik.
 
-**Architecture:** Moo-Klassen; die Fassade erweitert `IO::Async::Notifier` und hält ein `Net::Async::HTTP` als Kindknoten. Was kein I/O ist, kommt aus der Sync-Dist und wird nicht kopiert: `WWW::Authentik::Role::HTTP` liefert `build_request`, `read_response` und `flatten_field_errors`, `WWW::Authentik::Diff` den Vergleich, `WWW::Authentik::API->resolvable_fields` die Tabelle der Namensauflösung. Gesendet wird hier, über `Net::Async::Authentik::Role::HTTP`, das vor der Sync-Rolle komponiert wird und deren Fehlerklassen-Methoden überschreibt.
+**Architecture:** Moo classes; the facade extends `IO::Async::Notifier` and holds a `Net::Async::HTTP` as a child node. What is not I/O comes from the sync dist and is not copied: `WWW::Authentik::Role::HTTP` provides `build_request`, `read_response` and `flatten_field_errors`, `WWW::Authentik::Diff` the comparison, `WWW::Authentik::API->resolvable_fields` the name resolution table. Sending happens here, via `Net::Async::Authentik::Role::HTTP`, which is composed before the sync role and overrides its error class methods.
 
-**Tech Stack:** Perl 5.20+, Moo, IO::Async, Future, Future::AsyncAwait, Net::Async::HTTP, Types::Standard, WWW::Authentik. Dist::Zilla mit `[@Author::GETTY]`.
+**Tech Stack:** Perl 5.20+, Moo, IO::Async, Future, Future::AsyncAwait, Net::Async::HTTP, Types::Standard, WWW::Authentik. Dist::Zilla with `[@Author::GETTY]`.
 
-**Spec:** die der Sync-Dist, `~/dev/p5-www-authentik/docs/superpowers/specs/2026-10-04-www-authentik-design.md` (freigegeben, mit den Abschnitten 12 und 13). Abschnitt 9 beschreibt diesen Zwilling.
+**Spec:** the sync dist's, `~/dev/p5-www-authentik/docs/superpowers/specs/2026-10-04-www-authentik-design.md` (approved, with sections 12 and 13). Section 9 describes this twin.
 
-## Was `Net::Async::HTTP` anders macht als LWP
+## What `Net::Async::HTTP` does differently from LWP
 
-Am laufenden authentik 2026.8.3 geprüft, nicht aus dem Sync-Bau übernommen. Die vier
-Gefahren aus Abschnitt 13 der Spec sehen hier anders aus:
+Checked against the running authentik 2026.8.3, not carried over from the sync build. The four
+hazards from section 13 of the spec look different here:
 
-| Gefahr der Sync-Dist | `Net::Async::HTTP` 0.50 |
+| Hazard of the sync dist | `Net::Async::HTTP` 0.50 |
 |---|---|
-| LWP kündigt `TE` an, authentik lässt jede zweite Anfrage unbeantwortet | **Tritt nicht auf.** Auf dem Draht steht nur `Connection: keep-alive`, `Accept`, `Authorization`, `Host`, `User-Agent`. Sechs Anfragen hintereinander: sechsmal 200. Kein `send_te` nötig und keines vorhanden. |
-| `read_response` verlor einen gzip-Rumpf | Es fragt von sich aus keine Komprimierung an, und authentik komprimiert auch auf `Accept-Encoding: gzip` hin nicht (`content-encoding: none`). Die Behebung in der Sync-Rolle trägt hier trotzdem, weil dieselbe Rolle benutzt wird. |
-| LWP folgt Redirects, wenn man es lässt | `max_redirects => 0` liefert die 302 als Antwort mit `Location` zurück, also genau das, was `read_response` als Erfolg unter 400 behandelt. Am Authorize-Endpunkt geprüft. |
-| LWP meldet „kein Kontakt“ als 500 mit `Client-Warning: Internal response` | Das Future **scheitert**, mit einer Liste von Zeichenketten statt eines Objekts: abgelehnte Verbindung → `('127.0.0.1:9 - connect: Connection refused failed [Connection refused]')`, Zeitüberschreitung → `('Timed out', 'timeout')`. `send_request_f` muss das auf `Net::Async::Authentik::Error::Network` abbilden. |
+| LWP announces `TE`, authentik leaves every second request unanswered | **Does not occur.** On the wire there is only `Connection: keep-alive`, `Accept`, `Authorization`, `Host`, `User-Agent`. Six requests in a row: 200 six times. No `send_te` needed and none present. |
+| `read_response` lost a gzip body | It requests no compression on its own, and authentik does not compress even on `Accept-Encoding: gzip` (`content-encoding: none`). The fix in the sync role still applies here, because the same role is used. |
+| LWP follows redirects if you let it | `max_redirects => 0` returns the 302 as a response with `Location`, which is exactly what `read_response` treats as success below 400. Checked at the authorize endpoint. |
+| LWP reports "no contact" as 500 with `Client-Warning: Internal response` | The future **fails**, with a list of strings instead of an object: refused connection → `('127.0.0.1:9 - connect: Connection refused failed [Connection refused]')`, timeout → `('Timed out', 'timeout')`. `send_request_f` has to map that to `Net::Async::Authentik::Error::Network`. |
 
-Dazu zwei Dinge, die es neu mitbringt: es **hält die Verbindung offen** und schickt drei
-Anfragen über denselben Socket (LWP öffnete jedes Mal einen neuen), und es lädt
-`IO::Async::Internals::Connector` und für HTTPS `IO::Async::SSL` erst beim ersten
-Verbindungsaufbau — stirbt dabei ein Modul, bleibt bei `max_connections_per_host => 1`
-der Platz für immer belegt und jede weitere Anfrage hängt ohne Fehler (siehe Skill
-`perl-io-async-future`). Aufgabe 2 fängt das ab.
+In addition, two things it brings that are new: it **keeps the connection open** and sends three
+requests over the same socket (LWP opened a new one each time), and it loads
+`IO::Async::Internals::Connector` and, for HTTPS, `IO::Async::SSL` only on the first
+connection setup — if a module dies there, with `max_connections_per_host => 1`
+the slot stays occupied forever and every further request hangs without an error (see skill
+`perl-io-async-future`). Task 2 catches that.
 
 ## Global Constraints
 
-- Jede öffentliche Methode der Sync-Dist gibt es hier unter demselben Namen plus `_f` und liefert ein Future. Keine eigene API erfinden.
-- Was kein I/O ist, kommt aus `WWW-Authentik`: `Role::HTTP` (`build_request`, `read_response`, `flatten_field_errors`, `json_codec`), `Diff`, `API->resolvable_fields`. Nicht kopieren.
+- Every public method of the sync dist exists here under the same name plus `_f` and returns a future. Do not invent an API of your own.
+- What is not I/O comes from `WWW-Authentik`: `Role::HTTP` (`build_request`, `read_response`, `flatten_field_errors`, `json_codec`), `Diff`, `API->resolvable_fields`. Do not copy.
 - `cpanfile`: `requires 'WWW::Authentik', '0.001';`
-- Ein Paket pro Datei, jede Datei unter `lib/` mit `# ABSTRACT:` (nur ASCII) und `our $VERSION = '0.001';`.
-- **Nie den Loop blockieren.** Kein `->get` und kein `await` auf etwas Synchrones im Bibliothekscode, kein synchroner HTTP-Client.
-- Ein Fehler wird **nicht geworfen, sondern das Future scheitert** — auch bei falschen Argumenten. Der Aufrufer bekommt nie eine Exception aus einem `*_f`.
-- `IO::Async::Notifier->new` reicht jeden Schlüssel an `configure`, das Unbekanntes verwirft: eigene Attribute in `FOREIGNBUILDARGS` entfernen.
-- Jedes Future, das jemand braucht, wird gehalten, bis es fertig ist; geteilte Abrufe bekommt jeder Aufrufer als `without_cancel`, damit ein Abbruch den Abruf nicht mitnimmt.
-- 2 Leerzeichen Einrückung, `my ( $self, ... ) = @_;`, `is => 'ro'`, `namespace::autoclean`, Typen aus `Types::Standard`.
-- Tests laufen mit `PERL5LIB=$HOME/dev/p5-www-authentik/lib prove -lr t`; die Live-Suite nur mit `AUTHENTIK_LIVE_TEST=1`, `AUTHENTIK_URL` und `AUTHENTIK_TOKEN`.
-- Öffentliches Repo: keine Hostnamen außer `127.0.0.1` und `example.org`, keine Tokens.
+- One package per file, every file under `lib/` with `# ABSTRACT:` (ASCII only) and `our $VERSION = '0.001';`.
+- **Never block the loop.** No `->get` and no `await` on anything synchronous in library code, no synchronous HTTP client.
+- An error is **not thrown; the future fails** — also for wrong arguments. The caller never gets an exception from a `*_f`.
+- `IO::Async::Notifier->new` passes every key to `configure`, which rejects unknown ones: remove own attributes in `FOREIGNBUILDARGS`.
+- Every future someone needs is held until it is done; shared fetches are handed to each caller as `without_cancel`, so that a cancellation does not take the fetch along.
+- 2 spaces indentation, `my ( $self, ... ) = @_;`, `is => 'ro'`, `namespace::autoclean`, types from `Types::Standard`.
+- Tests run with `PERL5LIB=$HOME/dev/p5-www-authentik/lib prove -lr t`; the live suite only with `AUTHENTIK_LIVE_TEST=1`, `AUTHENTIK_URL` and `AUTHENTIK_TOKEN`.
+- Public repo: no hostnames except `127.0.0.1` and `example.org`, no tokens.
 
 ## Review Focus
 
-Fünf Dinge, die nur asynchron schiefgehen können und die keine portierte Suite von sich aus prüft.
+Five things that can only go wrong asynchronously and that no ported suite checks on its own.
 
-1. **Zwei Aufrufer, ein Abruf.** Zwanzig gleichzeitige `verify_token_f` dürfen ein Discovery und einen Schlüsselabruf auslösen, nicht zwanzig. Test `concurrent callers share the fetch` in `t/70-async.t` (Aufgabe 5).
-2. **Ein Aufrufer bricht ab, die anderen nicht.** `$first->cancel` auf einem geteilten Abruf darf den zweiten Aufrufer nicht um seine Antwort bringen. Test `cancelling one caller` in `t/70-async.t` (Aufgabe 5).
-3. **Ein Objekt ohne Loop.** Jede Methode muss ein gescheitertes Future liefern, das sagt, was fehlt — keine Exception und kein Hänger. Test `not in a loop` in `t/70-async.t` (Aufgabe 5).
-4. **Ein verlorenes Future.** Ein `ensure_*_f`, dessen Rückgabe niemand hält, darf keine halbe Änderung hinterlassen; die Warnung „lost its returning future“ darf in keinem Testlauf stehen. Test `nothing is written by a future nobody holds` in `t/70-async.t` (Aufgabe 5).
-5. **Paginierung über mehrere Seiten.** `_paged_f` muss `pagination.next` folgen, bei 0 aufhören und bei einer Antwort, deren `next` zurückzeigt, abbrechen statt endlos zu laufen. Test `pagination` in `t/50-api.t` (Aufgabe 4) und `_paged_f over three pages` in `t/70-async.t`.
+1. **Two callers, one fetch.** Twenty concurrent `verify_token_f` may trigger one discovery and one key fetch, not twenty. Test `concurrent callers share the fetch` in `t/70-async.t` (task 5).
+2. **One caller cancels, the others do not.** `$first->cancel` on a shared fetch must not cost the second caller its response. Test `cancelling one caller` in `t/70-async.t` (task 5).
+3. **An object without a loop.** Every method must return a failed future that says what is missing — no exception and no hang. Test `not in a loop` in `t/70-async.t` (task 5).
+4. **A lost future.** An `ensure_*_f` whose return value nobody holds must not leave a half-done change behind; the warning "lost its returning future" must not appear in any test run. Test `nothing is written by a future nobody holds` in `t/70-async.t` (task 5).
+5. **Pagination over several pages.** `_paged_f` must follow `pagination.next`, stop at 0 and, on a response whose `next` points back, abort instead of looping forever. Test `pagination` in `t/50-api.t` (task 4) and `_paged_f over three pages` in `t/70-async.t`.
 
-## Dateien
+## Files
 
-| Datei | Verantwortung | Aufgabe |
+| File | Responsibility | Task |
 |---|---|---|
-| `cpanfile` | Abhängigkeiten, darunter `WWW::Authentik` | 1 |
-| `lib/Net/Async/Authentik/Error.pm`, `Error/Validation.pm`, `Error/Network.pm`, `Error/API.pm` | Fehler, je zugleich die Klasse der Sync-Dist | 1 |
-| `lib/Net/Async/Authentik/Role/HTTP.pm` | `send_request_f`, `fail_validation`, Fehlerklassen | 2 |
-| `t/lib/FakeAuthentik.pm`, `t/lib/FakeHTTP.pm` | nachgebautes authentik (Kopie der Sync-Dist) und ein `Net::Async::HTTP`-Ersatz | 2 |
-| `lib/Net/Async/Authentik/OIDC.pm` | OIDC, geteilte Abrufe | 3 |
-| `lib/Net/Async/Authentik.pm` | Fassade auf `IO::Async::Notifier` | 3 |
+| `cpanfile` | dependencies, among them `WWW::Authentik` | 1 |
+| `lib/Net/Async/Authentik/Error.pm`, `Error/Validation.pm`, `Error/Network.pm`, `Error/API.pm` | errors, each at the same time the sync dist's class | 1 |
+| `lib/Net/Async/Authentik/Role/HTTP.pm` | `send_request_f`, `fail_validation`, error classes | 2 |
+| `t/lib/FakeAuthentik.pm`, `t/lib/FakeHTTP.pm` | emulated authentik (copy from the sync dist) and a `Net::Async::HTTP` stand-in | 2 |
+| `lib/Net/Async/Authentik/OIDC.pm` | OIDC, shared fetches | 3 |
+| `lib/Net/Async/Authentik.pm` | facade on `IO::Async::Notifier` | 3 |
 | `lib/Net/Async/Authentik/API.pm` | API v3, `_paged_f`, `resolve_f`, `ensure_*_f` | 4 |
-| `t/00-load.t`, `t/20-errors.t`, `t/40-facade.t`, `t/50-api.t`, `t/51-api-ensure.t`, `t/52-api-resolve.t`, `t/60-oidc.t` | die portierten Suiten | 2–4 |
-| `t/70-async.t` | was nur asynchron schiefgeht | 5 |
-| `t/lib/AuthentikExecutor.pm`, `t/90-live-authentik.t`, `t/authentik/` | Live-Suite | 6 |
-| `README.md`, `Changes`, `CLAUDE.md`, Core-Skill | Stand nachziehen | 6 |
+| `t/00-load.t`, `t/20-errors.t`, `t/40-facade.t`, `t/50-api.t`, `t/51-api-ensure.t`, `t/52-api-resolve.t`, `t/60-oidc.t` | the ported suites | 2–4 |
+| `t/70-async.t` | what only goes wrong asynchronously | 5 |
+| `t/lib/AuthentikExecutor.pm`, `t/90-live-authentik.t`, `t/authentik/` | live suite | 6 |
+| `README.md`, `Changes`, `CLAUDE.md`, core skill | bring up to date | 6 |
 
 ---
 
-### Task 1: Abhängigkeiten und die Fehlerklassen
+### Task 1: Dependencies and the error classes
 
 **Files:** `cpanfile`, `lib/Net/Async/Authentik/Error.pm`, `Error/Validation.pm`, `Error/Network.pm`, `Error/API.pm`, `t/00-load.t`
 
 **Interfaces:**
-- Produces: `Net::Async::Authentik::Error` erweitert `WWW::Authentik::Error`; `::Error::API` erweitert `WWW::Authentik::Error::API` **und** `Net::Async::Authentik::Error`, ebenso `::Validation` und `::Network`. Jede ist damit auch die Klasse der Sync-Dist, und Code, der `WWW::Authentik::Error::API` fängt, fängt sie mit.
+- Produces: `Net::Async::Authentik::Error` extends `WWW::Authentik::Error`; `::Error::API` extends `WWW::Authentik::Error::API` **and** `Net::Async::Authentik::Error`, likewise `::Validation` and `::Network`. Each is thereby also the sync dist's class, and code that catches `WWW::Authentik::Error::API` catches them too.
 
 - [ ] **Step 1: `cpanfile`**
 
@@ -102,13 +102,13 @@ on test => sub {
 };
 ```
 
-`IO::Async::SSL` ist eine harte Abhängigkeit, obwohl `Net::Async::HTTP` sie nur empfiehlt: ohne sie hängt die erste HTTPS-Anfrage, statt zu scheitern (Skill `perl-io-async-future`).
+`IO::Async::SSL` is a hard dependency, although `Net::Async::HTTP` only recommends it: without it the first HTTPS request hangs instead of failing (skill `perl-io-async-future`).
 
-Run: `cpanm --installdeps .` — Expected: ohne Fehler.
+Run: `cpanm --installdeps .` — Expected: without errors.
 
-- [ ] **Step 2: Die vier Fehlerklassen schreiben**
+- [ ] **Step 2: Write the four error classes**
 
-Jede ist vier Zeilen Moo plus POD, nach dem Muster von `Net::Async::Keycloak::Error`:
+Each is four lines of Moo plus POD, following the pattern of `Net::Async::Keycloak::Error`:
 
 ```perl
 package Net::Async::Authentik::Error::API;
@@ -121,32 +121,32 @@ extends 'WWW::Authentik::Error::API', 'Net::Async::Authentik::Error';
 our $VERSION = '0.001';
 ```
 
-`Net::Async::Authentik::Error` selbst erweitert nur `WWW::Authentik::Error`.
+`Net::Async::Authentik::Error` itself only extends `WWW::Authentik::Error`.
 
-- [ ] **Step 3: `t/00-load.t` und ein erster Lauf**
+- [ ] **Step 3: `t/00-load.t` and a first run**
 
-Alle neun Module auflisten (sie entstehen in den folgenden Aufgaben; bis dahin nur die vorhandenen).
+List all nine modules (they come into being in the following tasks; until then only the existing ones).
 Run: `PERL5LIB=$HOME/dev/p5-www-authentik/lib prove -lr t` — Expected: PASS.
 Commit: `Add the dependencies and the error classes`.
 
 ---
 
-### Task 2: Die HTTP-Rolle und das Testgerüst
+### Task 2: The HTTP role and the test harness
 
 **Files:** `lib/Net/Async/Authentik/Role/HTTP.pm`, `t/lib/FakeAuthentik.pm`, `t/lib/FakeHTTP.pm`, `t/20-errors.t`
 
 **Interfaces:**
 - Consumes: `WWW::Authentik::Role::HTTP`.
-- Produces: Rolle mit `api_error_class`, `network_error_class`, `validation_error_class`, `fail_validation($message)` → gescheitertes Future, `send_request_f( $method, $url, %arg )` → Future von `{ status, data, location, content }`.
-- `FakeHTTP->new( fake => $fake )` mit `do_request( request => $request )` → bereits fertiges Future; `->fake` liefert das `FakeAuthentik`.
+- Produces: role with `api_error_class`, `network_error_class`, `validation_error_class`, `fail_validation($message)` → failed future, `send_request_f( $method, $url, %arg )` → future of `{ status, data, location, content }`.
+- `FakeHTTP->new( fake => $fake )` with `do_request( request => $request )` → already completed future; `->fake` returns the `FakeAuthentik`.
 
-- [ ] **Step 1: `t/lib/FakeAuthentik.pm` übernehmen**
+- [ ] **Step 1: Take over `t/lib/FakeAuthentik.pm`**
 
-Kopie von `~/dev/p5-www-authentik/t/lib/FakeAuthentik.pm`, unverändert bis auf einen
-Kopfkommentar, der sagt, woher sie stammt und dass beide gleich bleiben müssen. Eine
-Testdatei lässt sich nicht als Abhängigkeit beziehen, deshalb die Kopie — wie bei
-`Net::Async::Keycloak`. Dazu in `t/00-load.t` eine Prüfung, die die beiden Dateien
-vergleicht, wenn die Sync-Dist daneben ausgecheckt ist, und sonst übersprungen wird:
+Copy of `~/dev/p5-www-authentik/t/lib/FakeAuthentik.pm`, unchanged except for a
+header comment that says where it comes from and that both have to stay the same. A
+test file cannot be pulled in as a dependency, hence the copy — as with
+`Net::Async::Keycloak`. In addition, a check in `t/00-load.t` that compares the two files
+when the sync dist is checked out next to it, and is skipped otherwise:
 
 ```perl
 my $sync = $ENV{WWW_AUTHENTIK_DIR} || "$ENV{HOME}/dev/p5-www-authentik";
@@ -160,7 +160,7 @@ SKIP: {
 }
 ```
 
-- [ ] **Step 2: `t/lib/FakeHTTP.pm` schreiben**
+- [ ] **Step 2: Write `t/lib/FakeHTTP.pm`**
 
 ```perl
 package FakeHTTP;
@@ -189,7 +189,7 @@ sub do_request {
 1;
 ```
 
-- [ ] **Step 3: `lib/Net/Async/Authentik/Role/HTTP.pm` schreiben**
+- [ ] **Step 3: Write `lib/Net/Async/Authentik/Role/HTTP.pm`**
 
 ```perl
 package Net::Async::Authentik::Role::HTTP;
@@ -236,30 +236,30 @@ sub send_request_f {
 1;
 ```
 
-Die Rolle wird **vor** `WWW::Authentik::Role::HTTP` komponiert, damit ihre
-Fehlerklassen-Methoden gewinnen:
+The role is composed **before** `WWW::Authentik::Role::HTTP`, so that its
+error class methods win:
 
 ```perl
 with 'Net::Async::Authentik::Role::HTTP';
 with 'WWW::Authentik::Role::HTTP';
 ```
 
-POD: `=description` sagt, dass Anfragen und Antworten von der Sync-Rolle gebaut und
-gelesen werden, damit beide Clients authentiks Antworten gleich abbilden, und dass diese
-Rolle nur sendet.
+POD: `=description` says that requests and responses are built and read by the sync role,
+so that both clients map authentik's responses the same way, and that this
+role only sends.
 
-- [ ] **Step 4: `t/20-errors.t` portieren**
+- [ ] **Step 4: Port `t/20-errors.t`**
 
-Die Suite der Sync-Dist, jeder Aufruf als `->get`, und statt `error_of { ... }` ein
-Helfer, der das Scheitern des Futures nimmt:
+The sync dist's suite, every call as `->get`, and instead of `error_of { ... }` a
+helper that takes the failure of the future:
 
 ```perl
 sub failure_of { my ( $future ) = @_; $future->is_failed ? ( $future->failure )[0] : undef }
 ```
 
-Dazu drei Prüfungen, die es nur hier gibt: jede Fehlerklasse ist auch die der Sync-Dist
-(`isa_ok( $error, 'WWW::Authentik::Error::API' )`), ein falsches Argument **scheitert das
-Future, statt zu werfen**, und eine abgelehnte Verbindung wird zu
+In addition three checks that only exist here: every error class is also the sync dist's
+(`isa_ok( $error, 'WWW::Authentik::Error::API' )`), a wrong argument **fails the
+future instead of throwing**, and a refused connection becomes
 `Net::Async::Authentik::Error::Network`.
 
 Run: `PERL5LIB=… prove -lr t` — Expected: PASS.
@@ -267,32 +267,32 @@ Commit: `Add the HTTP role and the test harness`.
 
 ---
 
-### Task 3: OIDC und die Fassade
+### Task 3: OIDC and the facade
 
 **Files:** `lib/Net/Async/Authentik/OIDC.pm`, `lib/Net/Async/Authentik.pm`, `t/40-facade.t`, `t/60-oidc.t`
 
 **Interfaces:**
-- Produces: `Net::Async::Authentik->new( base_url =>, application =>, client_id =>, token =>, http => )` mit `->oidc`, `->api`, `->issuer`, `->application_url`, `->api_url`, `->for_application($slug)`, `->http`.
-- `Net::Async::Authentik::OIDC->new( application_url =>, http =>, client_id =>, algorithms =>, jwks_min_age =>, now => )` mit `discovery_f`, `jwks_f`, `endpoint_f`, `issuer_f`, den acht `*_endpoint_f`, `issuer_names_the_application_f`, `verify_token_f`, `userinfo_f`, `introspect_f`, `revoke_f`, `client_credentials_token_f`, `refresh_token_f`, `exchange_authorization_code_f`, `device_authorization_f`, `device_token_f`, `authorization_url_f`.
+- Produces: `Net::Async::Authentik->new( base_url =>, application =>, client_id =>, token =>, http => )` with `->oidc`, `->api`, `->issuer`, `->application_url`, `->api_url`, `->for_application($slug)`, `->http`.
+- `Net::Async::Authentik::OIDC->new( application_url =>, http =>, client_id =>, algorithms =>, jwks_min_age =>, now => )` with `discovery_f`, `jwks_f`, `endpoint_f`, `issuer_f`, the eight `*_endpoint_f`, `issuer_names_the_application_f`, `verify_token_f`, `userinfo_f`, `introspect_f`, `revoke_f`, `client_credentials_token_f`, `refresh_token_f`, `exchange_authorization_code_f`, `device_authorization_f`, `device_token_f`, `authorization_url_f`.
 
-- [ ] **Step 1: Die Tests schreiben**
+- [ ] **Step 1: Write the tests**
 
-`t/40-facade.t` wie in der Sync-Dist, dazu: `http` ist ein Kindknoten der Fassade
-(`grep { $_ == $ak->http } $ak->children`), ein übergebenes `http` wird **nicht** als Kind
-hinzugefügt, `for_application` teilt es, und die Fassade nimmt auch eine Hash-Referenz.
-Die Sync-Prüfungen auf `max_redirect` und `send_te` entfallen; stattdessen:
-`max_redirects` ist 0 und `fail_on_error` ist falsch, damit eine 404 als Antwort
-zurückkommt und `read_response` sie in einen Fehler verwandelt.
+`t/40-facade.t` as in the sync dist, plus: `http` is a child node of the facade
+(`grep { $_ == $ak->http } $ak->children`), an `http` passed in is **not** added as a child,
+`for_application` shares it, and the facade also accepts a hash reference.
+The sync checks for `max_redirect` and `send_te` are dropped; instead:
+`max_redirects` is 0 and `fail_on_error` is false, so that a 404 comes back as a response
+and `read_response` turns it into an error.
 
-`t/60-oidc.t` wie in der Sync-Dist, jeder Aufruf `->get`, einschließlich des Subtests
-`two applications of one instance` mit `issuer_mode: global`.
+`t/60-oidc.t` as in the sync dist, every call `->get`, including the subtest
+`two applications of one instance` with `issuer_mode: global`.
 
-- [ ] **Step 2: `lib/Net/Async/Authentik/OIDC.pm` schreiben**
+- [ ] **Step 2: Write `lib/Net/Async/Authentik/OIDC.pm`**
 
-Attribute wie die Sync-Klasse, aber `http` statt `ua`, und die Zustände als `rw`:
+Attributes like the sync class, but `http` instead of `ua`, and the state as `rw`:
 `_discovery`, `_jwks`, `_jwks_fetched`, `_in_flight` (`default => sub { {} }`).
 
-Der geteilte Abruf, wörtlich wie beim Keycloak-Zwilling:
+The shared fetch, literally as in the Keycloak twin:
 
 ```perl
 # One fetch for everybody who asks while it is under way, each with a view of
@@ -309,14 +309,14 @@ sub _shared {
 }
 ```
 
-`discovery_f` und `jwks_f` gehen darüber; `jwks_f` setzt `_jwks_fetched` **beim Start**,
-damit schon laufende Prüfungen es sehen.
+`discovery_f` and `jwks_f` go through it; `jwks_f` sets `_jwks_fetched` **at the start**,
+so that checks already running see it.
 
-`verify_token_f` ist die Sync-Methode mit `await` davor, mit allen drei Punkten aus
-Spec 13.2: `client_id` als voreingestellte `audience`, die Weigerung, ohne
-unterscheidenden Aussteller zu prüfen (`any_audience => 1` hebt sie auf), und die
-`scope`-Heuristik für `type`. Der Unterschied zur Sync-Fassung: der Aussteller kommt aus
-einem Future, also
+`verify_token_f` is the sync method with `await` in front, with all three points from
+spec 13.2: `client_id` as the preset `audience`, the refusal to verify without
+a distinguishing issuer (`any_audience => 1` lifts it), and the
+`scope` heuristic for `type`. The difference from the sync version: the issuer comes from
+a future, so
 
 ```perl
 async sub issuer_names_the_application_f {
@@ -325,15 +325,15 @@ async sub issuer_names_the_application_f {
 }
 ```
 
-und `verify_token_f` wartet auf `issuer_f` und `issuer_names_the_application_f`, bevor es
-entscheidet. Ein Nachladen der Schlüssel darf auch dann geschehen, wenn gerade ein Abruf
-läuft (`$self->_in_flight->{jwks} || $self->now->() - ... >= $self->jwks_min_age`), sonst
-scheitern zwanzig gleichzeitige Prüfungen mit einem rotierten Schlüssel.
+and `verify_token_f` waits for `issuer_f` and `issuer_names_the_application_f` before it
+decides. Reloading the keys may also happen while a fetch is currently
+running (`$self->_in_flight->{jwks} || $self->now->() - ... >= $self->jwks_min_age`), otherwise
+twenty concurrent checks with a rotated key fail.
 
-`authorization_url_f` ist das einzige, was kein I/O bräuchte — es braucht aber den
-Endpunkt aus dem Discovery, also ist es ebenfalls ein Future.
+`authorization_url_f` is the only thing that would need no I/O — but it needs the
+endpoint from the discovery, so it is a future as well.
 
-- [ ] **Step 3: `lib/Net/Async/Authentik.pm` schreiben**
+- [ ] **Step 3: Write `lib/Net/Async/Authentik.pm`**
 
 ```perl
 use Moo;
@@ -354,7 +354,7 @@ sub BUILDARGS {
 }
 ```
 
-`http` ist `is => 'lazy'` und wird als Kind hinzugefügt:
+`http` is `is => 'lazy'` and is added as a child:
 
 ```perl
 sub _build_http {
@@ -373,16 +373,16 @@ sub _build_http {
 }
 ```
 
-`oidc` und `api` wie in der Sync-Fassade, aber sie scheitern nicht beim Bauen: ein
-fehlender Slug oder ein fehlendes Token wird erst beim Aufruf zu einem **gescheiterten
-Future**, weil ein Attributzugriff nicht werfen soll. Also bauen `_build_oidc` und
-`_build_api` das Unterobjekt immer, und die Methoden dort prüfen.
+`oidc` and `api` as in the sync facade, but they do not fail on construction: a
+missing slug or a missing token only becomes a **failed
+future** on the call, because an attribute access should not throw. So `_build_oidc` and
+`_build_api` always build the sub-object, and the methods there check.
 
-Die POD der Fassade nennt, wie die der Sync-Dist, den Unterschied in der Rückgabe
-(`{ object, changed }`) und dazu: zuerst `$loop->add($ak)`, sonst scheitert jede Anfrage
-mit einem Netzwerkfehler, der genau das sagt.
+The facade's POD names, like the sync dist's, the difference in the return value
+(`{ object, changed }`) and in addition: first `$loop->add($ak)`, otherwise every request fails
+with a network error that says exactly that.
 
-- [ ] **Step 4: Tests laufen lassen, committen**
+- [ ] **Step 4: Run the tests, commit**
 
 Run: `PERL5LIB=… prove -lr t` — Expected: PASS.
 Commit: `Add the OIDC client and the facade`.
@@ -395,14 +395,14 @@ Commit: `Add the OIDC client and the facade`.
 
 **Interfaces:**
 - Consumes: `WWW::Authentik::Diff`, `WWW::Authentik::API->resolvable_fields`.
-- Produces: jede Methode von `WWW::Authentik::API` mit `_f`, dazu `call_f`, `_paged_f`, `resolve_f`, `_ensure_f`.
+- Produces: every method of `WWW::Authentik::API` with `_f`, plus `call_f`, `_paged_f`, `resolve_f`, `_ensure_f`.
 
-- [ ] **Step 1: Die drei Suiten portieren**
+- [ ] **Step 1: Port the three suites**
 
-Wörtlich die der Sync-Dist, mit `_f` und `->get`. In `t/50-api.t` kommt die Paginierung
-dazu, die hier eine Schleife mit `await` ist statt einer `while`-Schleife.
+Literally those of the sync dist, with `_f` and `->get`. In `t/50-api.t` the pagination is added,
+which here is a loop with `await` instead of a `while` loop.
 
-- [ ] **Step 2: Transport, Paginierung, Auflösung**
+- [ ] **Step 2: Transport, pagination, resolution**
 
 ```perl
 async sub call_f {
@@ -427,10 +427,10 @@ async sub _paged_f {
 }
 ```
 
-`_query` und `_esc` sind reine Funktionen und werden aus `WWW::Authentik::API` geerbt —
-nein: die Sync-Klasse ist keine Rolle. Sie werden hier als dieselben drei Zeilen
-geschrieben, und `resolvable_fields` wird **delegiert**, damit die Tabelle nur einmal
-existiert:
+`_query` and `_esc` are pure functions and are inherited from `WWW::Authentik::API` —
+no: the sync class is not a role. They are written here as the same three lines,
+and `resolvable_fields` is **delegated**, so that the table exists
+only once:
 
 ```perl
 sub resolvable_fields { WWW::Authentik::API->resolvable_fields }
@@ -439,18 +439,18 @@ async sub resolve_f {
   my ( $self, $rep ) = @_;
   my %out    = %$rep;
   my $fields = $self->resolvable_fields;
-  ...   # dieselbe Reihenfolge und dieselben Prüfungen wie in der Sync-Dist,
-        # aber `my $found = await $self->${\ ( $spec->{find}.'_f' ) }($value);`
+  ...   # the same order and the same checks as in the sync dist,
+        # but `my $found = await $self->${\ ( $spec->{find}.'_f' ) }($value);`
   return \%out;
 }
 ```
 
-Der Name der Nachschlagemethode ist der der Sync-Dist plus `_f`. Dass die Tabelle geteilt
-ist, hält die Regel aus Spec 12 (keine Rate-Erkennung) in beiden Dists gleich.
+The name of the lookup method is the sync dist's plus `_f`. That the table is shared
+keeps the rule from spec 12 (no guessing detection) the same in both dists.
 
-- [ ] **Step 3: Die Grundoperationen und `ensure_*_f`**
+- [ ] **Step 3: The basic operations and `ensure_*_f`**
 
-Jede Methode eine Zeile nach dem Muster der Sync-Dist. `_ensure_f`:
+Each method one line following the pattern of the sync dist. `_ensure_f`:
 
 ```perl
 async sub _ensure_f {
@@ -467,13 +467,13 @@ async sub _ensure_f {
 }
 ```
 
-`diff_class` ist `WWW::Authentik::Diff`, also derselbe Vergleich, einschließlich der
-Regel aus Spec 13.2 über zugeschnittene Textfelder.
+`diff_class` is `WWW::Authentik::Diff`, so the same comparison, including the
+rule from spec 13.2 about trimmed text fields.
 
-Jede Prüfung, die in der Sync-Dist wirft, gibt hier ein gescheitertes Future zurück:
+Every check that throws in the sync dist returns a failed future here:
 `return $self->fail_validation('ensure_user needs a username') unless defined $rep{username};`
 
-- [ ] **Step 4: Tests laufen lassen, committen**
+- [ ] **Step 4: Run the tests, commit**
 
 Commit: `Add the API v3 client with the ensure methods`.
 
@@ -483,128 +483,128 @@ Commit: `Add the API v3 client with the ensure methods`.
 
 **Files:** `t/70-async.t`
 
-Ein `DeferredHTTP`, dessen Antworten erst kommen, wenn der Test es sagt, wie beim
-Keycloak-Zwilling. Subtests:
+A `DeferredHTTP` whose responses only come when the test says so, as in the
+Keycloak twin. Subtests:
 
-- `concurrent callers share the fetch` — zwanzig `verify_token_f` mit unbekannter `kid`: ein Discovery, zwei Schlüsselabrufe (der erste und einer wegen der unbekannten Schlüssel), zwanzig gescheiterte Futures mit Validation-Fehler.
-- `cancelling one caller leaves the fetch alone` — zwei Aufrufer teilen einen Abruf, der erste bricht ab, der zweite bekommt seine Antwort.
-- `requests run side by side` — drei `*_f` gleichzeitig, drei Anfragen unterwegs, alle drei fertig.
-- `_paged_f over three pages` — 25 Objekte bei `page_size => 10`: drei Anfragen, 25 Treffer; eine Antwort, deren `next` zurückzeigt, bricht ab.
-- `not in a loop` — jede Methode liefert ein gescheitertes Future mit `Net::Async::Authentik::Error::Network`, dessen Meldung „added to a loop“ enthält.
-- `wrong arguments fail the future` — `ensure_user_f()`, `find_user_f(undef)`, `resolve_f({ scopes => undef })`: gescheitert, nicht geworfen, und jedes Mal ein Validation-Fehler.
-- `nothing is written by a future nobody holds` — ein `ensure_group_f`, dessen Rückgabe fallen gelassen wird, gefolgt von einem gehaltenen Lauf: der Zähler `$fake->writes` darf höchstens einmal steigen, und `$SIG{__WARN__}` darf kein „lost its returning future“ sehen.
+- `concurrent callers share the fetch` — twenty `verify_token_f` with an unknown `kid`: one discovery, two key fetches (the first one and one because of the unknown keys), twenty failed futures with a validation error.
+- `cancelling one caller leaves the fetch alone` — two callers share a fetch, the first cancels, the second gets its response.
+- `requests run side by side` — three `*_f` at the same time, three requests in flight, all three done.
+- `_paged_f over three pages` — 25 objects at `page_size => 10`: three requests, 25 matches; a response whose `next` points back aborts.
+- `not in a loop` — every method returns a failed future with `Net::Async::Authentik::Error::Network`, whose message contains "added to a loop".
+- `wrong arguments fail the future` — `ensure_user_f()`, `find_user_f(undef)`, `resolve_f({ scopes => undef })`: failed, not thrown, and each time a validation error.
+- `nothing is written by a future nobody holds` — an `ensure_group_f` whose return value is dropped, followed by a held run: the counter `$fake->writes` may rise at most once, and `$SIG{__WARN__}` must not see "lost its returning future".
 
 Commit: `Add the asynchronous behaviour tests`.
 
 ---
 
-### Task 6: Live-Suite und Stand nachziehen
+### Task 6: Live suite and bring up to date
 
 **Files:** `t/lib/AuthentikExecutor.pm`, `t/90-live-authentik.t`, `t/authentik/docker-compose.yml`, `t/authentik/env.example`, `t/authentik/ci-live-job.yml`, `README.md`, `Changes`, `CLAUDE.md`, `.claude/skills/net-async-authentik-core/SKILL.md`, `t/00-load.t`
 
-- [ ] **Step 1: Die Live-Suite portieren**
+- [ ] **Step 1: Port the live suite**
 
-Die der Sync-Dist mit `_f` und `->get`, eigenes Präfix `naauth-live-…`, derselbe
-`END`-Block, einschließlich des Service-Accounts des Client-Credentials-Grants. Der
-Executor-Helfer kommt als Kopie mit (er spricht HTTP für sich selbst und bleibt
-synchron; das ist Testcode, kein Bibliothekscode).
+The sync dist's with `_f` and `->get`, own prefix `naauth-live-…`, the same
+`END` block, including the service account of the client credentials grant. The
+executor helper comes along as a copy (it speaks HTTP by itself and stays
+synchronous; that is test code, not library code).
 
-Dazu zwei Prüfungen, die es nur hier gibt: die Fassade wird dem Loop hinzugefügt, und ein
-`Future->needs_all` über drei `ensure_*_f` läuft gegen das echte authentik parallel und
-alle drei melden beim zweiten Lauf nichts.
+In addition two checks that only exist here: the facade is added to the loop, and a
+`Future->needs_all` over three `ensure_*_f` runs in parallel against the real authentik and
+all three report nothing on the second run.
 
-- [ ] **Step 2: Das Compose-File und den CI-Job übernehmen**
+- [ ] **Step 2: Take over the compose file and the CI job**
 
-`t/authentik/docker-compose.yml` und `env.example` wie in der Sync-Dist. Der Live-Job
-kommt als `t/authentik/ci-live-job.yml` ins Repo, nicht nach `.github/workflows/`: der
-Deploy-Key darf keine Workflow-Dateien pushen.
+`t/authentik/docker-compose.yml` and `env.example` as in the sync dist. The live job
+goes into the repo as `t/authentik/ci-live-job.yml`, not into `.github/workflows/`: the
+deploy key may not push workflow files.
 
 - [ ] **Step 3: `README.md`, `Changes`, `CLAUDE.md`, Core-Skill, `t/00-load.t`**
 
-Kein „Skeleton state“ mehr; das README zeigt `$loop->add($ak)` und je ein Beispiel für
-`oidc` und `api`.
+No "Skeleton state" any more; the README shows `$loop->add($ak)` and one example each for
+`oidc` and `api`.
 
-- [ ] **Step 4: Alles laufen lassen**
+- [ ] **Step 4: Run everything**
 
 Run: `PERL5LIB=$HOME/dev/p5-www-authentik/lib prove -lr t && PERL5LIB=… dzil test --all`
-und die Live-Suite gegen die Wegwerf-Instanz. Expected: alle PASS.
+and the live suite against the throwaway instance. Expected: all PASS.
 Commit: `Add the live suite and bring the docs to the built state`.
 
 ---
 
-## Selbstprüfung gegen die Spec
+## Self-check against the spec
 
-- **Abschnitt 9 (Zwilling)** → `build_request`/`read_response` und `Diff` aus der Sync-Dist (Aufgaben 2 und 4), `_paged_f` und `resolve_f` als eigene Methoden mit derselben Tabelle (Aufgabe 4).
-- **Abschnitte 5 und 6** → jede Methode mit `_f` (Aufgaben 3 und 4).
-- **Abschnitt 7** → die Fehlerhierarchie, jede Klasse zugleich die der Sync-Dist (Aufgabe 1).
-- **Abschnitt 13.1** → die vier Gefahren oben neu geprüft; `TE` entfällt, der Rest trägt.
-- **Abschnitt 13.2** → `verify_token_f` mit `client_id`, Audience-Pflicht und `any_audience`; `resolve_f` mit denselben Weigerungen; `find_*_f(undef)` scheitert; der Vergleich ist derselbe.
+- **Section 9 (twin)** → `build_request`/`read_response` and `Diff` from the sync dist (tasks 2 and 4), `_paged_f` and `resolve_f` as methods of their own with the same table (task 4).
+- **Sections 5 and 6** → every method with `_f` (tasks 3 and 4).
+- **Section 7** → the error hierarchy, each class at the same time the sync dist's (task 1).
+- **Section 13.1** → the four hazards above re-checked; `TE` is dropped, the rest holds.
+- **Section 13.2** → `verify_token_f` with `client_id`, audience requirement and `any_audience`; `resolve_f` with the same refusals; `find_*_f(undef)` fails; the comparison is the same.
 
-## Nach dem Bau geklärt (2026-10-04)
+## Clarified after the build (2026-10-04)
 
-Ein unabhängiger Review ohne Bau-Kontext, mit Proben gegen das laufende authentik 2026.8.3,
-hat sechs Punkte gefunden. Fünf sind behoben und durch Tests festgehalten; der sechste ist
-ein Fehler in Future::AsyncAwait, den diese Dist nicht beheben kann.
+An independent review without build context, with probes against the running authentik 2026.8.3,
+found six points. Five are fixed and pinned by tests; the sixth is
+a bug in Future::AsyncAwait that this dist cannot fix.
 
-### Der Absturz bei Programmende — Future::AsyncAwait 0.71, nicht diese Dist
+### The crash at program exit — Future::AsyncAwait 0.71, not this dist
 
-Der Review meldete einen reproduzierbaren Absturz des Interpreters (`double free or
-corruption`, `free(): invalid pointer`, Segmentation Fault) beim Abbrechen laufender
-Futures. Die Nachprüfung hat ihn bestätigt und dann anders eingeordnet, als er gemeldet war:
+The review reported a reproducible crash of the interpreter (`double free or
+corruption`, `free(): invalid pointer`, segmentation fault) when cancelling running
+futures. The re-check confirmed it and then classified it differently than reported:
 
-- **Mit dem Abbrechen hat er nichts zu tun.** Derselbe Aufruf ohne `cancel` stürzt ebenso ab.
-- **Der Auslöser ist eine Referenz im Rahmen einer bei Programmende noch angehaltenen
-  `async sub`.** Mit einer Zeichenkette statt der Referenz ist derselbe Ablauf sauber.
-- **Er liegt in der globalen Aufräumphase**, nach der Arbeit des Programms: die Ausgabe
-  erscheint noch, der Exit-Status ist 134 oder 139.
-- **Weder `Net::Async::HTTP` noch `IO::Async` noch Moo sind beteiligt.** Acht Zeilen reines
-  Future::AsyncAwait reichen; sie stehen als `docs/future-asyncawait-0.71-crash.pl` im Repo,
-  mitsamt dem, was daran etwas ändert und was nicht.
-- **Der Aufrufer kann sich nicht dagegen schützen**, indem er das Future hält oder
-  `->retain` ruft — nur dadurch, dass er es fertig werden lässt.
+- **It has nothing to do with cancelling.** The same call without `cancel` crashes just the same.
+- **The trigger is a reference in the frame of an `async sub` that is still suspended
+  at program exit.** With a string instead of the reference the same flow is clean.
+- **It happens in the global destruction phase**, after the program's work: the output
+  still appears, the exit status is 134 or 139.
+- **Neither `Net::Async::HTTP` nor `IO::Async` nor Moo are involved.** Eight lines of plain
+  Future::AsyncAwait are enough; they are in the repo as `docs/future-asyncawait-0.71-crash.pl`,
+  together with what changes something about it and what does not.
+- **The caller cannot protect against it** by holding the future or
+  calling `->retain` — only by letting it finish.
 
-0.71 ist die neueste Fassung auf CPAN, eine Pinnung hilft also nicht. Was die Dist tut:
-`pairs_or_fail` in `Net::Async::Authentik::Role::HTTP` prüft bei jeder `async sub`, die eine
-Hash-Liste einsammelt, vorher die Form der Argumentliste und scheitert das Future bei einer
-ungeraden — das war der leichteste Weg, versehentlich eine Referenz in so einen Rahmen zu
-bekommen. Und die POD der Fassade und das README sagen jetzt ausdrücklich, dass jedes Future
-vor Programmende fertig werden muss, mit dem Verweis auf den Reproducer. Für PEVANS
-aufzubereiten und zu melden: Gettys Entscheidung, nicht meine.
+0.71 is the latest version on CPAN, so pinning does not help. What the dist does:
+`pairs_or_fail` in `Net::Async::Authentik::Role::HTTP` checks, in every `async sub` that
+collects a hash list, the shape of the argument list beforehand and fails the future on an
+odd one — that was the easiest way to accidentally get a reference into such a
+frame. And the facade's POD and the README now say explicitly that every future
+has to finish before program exit, with the reference to the reproducer. Preparing it for PEVANS
+and reporting it: Getty's decision, not mine.
 
-### Behoben
+### Fixed
 
-- **`send_request_f` konnte werfen.** `build_request` stand außerhalb des `eval`, und ein
-  Rumpf, den der JSON-Kodierer nicht kann, ließ `call_f` eine Exception werfen statt das
-  Future scheitern — gegen die zugesagte Regel, dass hier nichts wirft. Jetzt ein
-  Validation-Fehler im Future.
-- **`ensure_binding_f` meldete jeden Fehler als „no flow“.** Ein `eval` um die Suche fing
-  auch eine abgelehnte Verbindung, eine 401 und eine 500 und machte daraus die Behauptung,
-  der Flow gebe es nicht. Jetzt wird nur ein ausbleibender Treffer zum Validation-Fehler,
-  alles andere bleibt, was es ist.
-- **`uuid_pattern` und `integer_pattern` fehlten.** Die Sync-Dist hat sie seit `45325ea` als
-  öffentliche Klassenmethoden, der Zwilling benutzte sie, legte sie aber nicht offen. Jetzt
-  delegiert er sie, und ein Test vergleicht beide Klassen Methode für Methode in beide
-  Richtungen.
-- **`_detail_f` konnte mit der leeren Zeichenkette sterben.** Es unterschied Erfolg und
-  Fehler an der Wahrheit des Ergebnisses; eine Antwort ohne Rumpf führte zu `die ''`. Jetzt
-  entscheidet, ob `eval` gescheitert ist.
-- **`_fetch_jwks_f` prüfte nicht, was zurückkam.** Ein Rumpf, der kein JSON-Objekt ist, ließ
-  den Zwischenspeicher leer, und jede Prüfung holte die Schlüssel erneut. Jetzt dieselbe
-  Prüfung wie beim Discovery-Dokument drei Zeilen darüber.
+- **`send_request_f` could throw.** `build_request` stood outside the `eval`, and a
+  body the JSON encoder cannot handle made `call_f` throw an exception instead of failing the
+  future — against the promised rule that nothing throws here. Now a
+  validation error in the future.
+- **`ensure_binding_f` reported every error as "no flow".** An `eval` around the lookup also caught
+  a refused connection, a 401 and a 500 and turned them into the claim
+  that the flow did not exist. Now only a missing match becomes a validation error,
+  everything else stays what it is.
+- **`uuid_pattern` and `integer_pattern` were missing.** The sync dist has had them since `45325ea` as
+  public class methods; the twin used them but did not expose them. Now
+  it delegates them, and a test compares both classes method by method in both
+  directions.
+- **`_detail_f` could die with the empty string.** It told success and
+  failure apart by the truth of the result; a response without a body led to `die ''`. Now
+  what decides is whether `eval` failed.
+- **`_fetch_jwks_f` did not check what came back.** A body that is not a JSON object left
+  the cache empty, and every check fetched the keys again. Now the same
+  check as for the discovery document three lines above.
 
-### Geprüft und in Ordnung befunden
+### Checked and found in order
 
-Der geteilte Abruf, wenn der erste **scheitert** (zweimal hintereinander, kein Festfahren);
-alle Aufrufer brechen ab (der nächste bekommt eine frische Sicht); die Abbildung aller sechs
-Fehlerformen von `Net::Async::HTTP` (DNS, abgelehnt, Zeitüberschreitung, kaputte Statuszeile,
-Verbindungsabbruch im Rumpf, Abbruch vor dem Kopf) auf `Error::Network`, jeweils als Objekt;
-„nichts wirft“ über rund 70 Methoden mal sechs Argumentformen; die Lebensdauer (nach
-`$loop->remove` wird das Objekt freigegeben, kein festgehaltenes `$self`); `for_application`;
-und `ensure_*` gegen das echte authentik durch **beide** Clients nacheinander, die sich einig
-sind, was eine Änderung ist.
+The shared fetch when the first one **fails** (twice in a row, no getting stuck);
+all callers cancel (the next one gets a fresh view); the mapping of all six
+error forms of `Net::Async::HTTP` (DNS, refused, timeout, broken status line,
+connection drop in the body, drop before the header) to `Error::Network`, each as an object;
+"nothing throws" over about 70 methods times six argument shapes; the lifetime (after
+`$loop->remove` the object is freed, no `$self` held on to); `for_application`;
+and `ensure_*` against the real authentik through **both** clients one after the other, which agree
+on what a change is.
 
-### Vom Review nicht erreicht
+### Not reached by the review
 
-Ein echter OIDC-Durchlauf gegen die Instanz, die Live-Suite und `dzil build`. Alles drei ist
-hier gelaufen: `prove -lr t`, `dzil test --all` und `t/90-live-authentik.t` zweimal
-hintereinander.
+A real OIDC run against the instance, the live suite and `dzil build`. All three
+ran here: `prove -lr t`, `dzil test --all` and `t/90-live-authentik.t` twice
+in a row.

@@ -3,7 +3,7 @@ name: net-async-authentik-core
 description: Use when working on Net::Async::Authentik — the IO::Async/Future client for authentik's OIDC endpoints and REST API (v3), its module layout, error classes, or its tests.
 ---
 
-# net-async-authentik — Kern
+# net-async-authentik — core
 
 IO::Async-based client for authentik, the async twin of `WWW::Authentik`
 (`~/dev/p5-www-authentik`), a structural sibling of `Net::Async::Keycloak`
