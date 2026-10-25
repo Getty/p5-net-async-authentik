@@ -39,7 +39,8 @@ is a copy, and `t/00-load.t` fails when the two drift.
 ## Delegation
 
 Delegate behavior-relevant code to the right agent instead of touching it yourself —
-principle and lane are in `.claude/rules/net-async-authentik-rules.md`.
+the delegation lock and the publish gate are shared house rules (skilletor bundle
+`getty-cpan-dist@getty`); lanes and hazards are in `.claude/rules/net-async-authentik-rules.md`.
 
 | Task | Agent |
 |---|---|
