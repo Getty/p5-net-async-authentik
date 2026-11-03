@@ -1,6 +1,14 @@
 Revision history for Net-Async-Authentik
 
 {{$NEXT}}
+    - The token endpoint is checked: a redirect or an answer without a token
+      is an error that names the status, the method and the path; mirrors
+      WWW::Authentik::OIDC
+    - The JWKS answer is checked before it is cached: an answer that carries
+      no keys fails with an API error that names the status, the method and
+      the path, and a token is no longer rejected because of it
+    - Net::Async::Authentik::API::call_f takes the raw option, which the flow
+      export uses to take its YAML body as it is
     - Net::Async::Authentik::API::call_f fails with Net::Async::Authentik::Error::API
       for a 3xx answer, naming the Location, instead of resolving with an empty
       result; mirrors WWW::Authentik::API::call

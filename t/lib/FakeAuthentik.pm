@@ -123,6 +123,7 @@ sub new {
     passwords     => {},
     data          => { map { $_ => {} } keys %COLLECTION },
     oauth         => { access => {}, refresh => {}, codes => {}, devices => {} },
+    answers       => [],
     break_paging  => 0
   );
   $self->_seed unless $arg{empty};
@@ -139,6 +140,18 @@ sub collection   { $_[0]{data}{ $_[1] } }
 sub kid          { $_[0]{kid} }
 sub public_key   { JSON::MaybeXS->new->decode( $_[0]{key}->export_key_jwk('public') ) }
 sub break_pagination { $_[0]{break_paging} = defined $_[1] ? $_[1] : 1; return }
+
+# a test can answer for one path itself: a redirect, a body that is not JSON,
+# a token endpoint that hands out no token. The last answer for a path wins.
+#
+#   $fake->answer( qr{/application/o/token/\z}, 302, '', 'Location' => $url );
+#   $fake->answer( qr{/core/users/}, 200, '<html>...</html>' );
+#   $fake->answer( qr{/core/users/}, 200, { results => [] } );
+sub answer {
+  my ( $self, $path, $status, $body, @header ) = @_;
+  push @{ $self->{answers} }, { path => $path, status => $status, body => $body, header => \@header };
+  return;
+}
 
 sub rotate_key {
   my ( $self ) = @_;
@@ -246,6 +259,10 @@ sub request {
   push @{ $self->{requests} }, [ $method, $path.( $uri->query ? '?'.$uri->query : '' ), $body ];
   $self->{writes}++ if $method ne 'GET' && $method ne 'HEAD';
   my %query = $uri->query_form;
+  for my $answer ( reverse @{ $self->{answers} } ) {
+    next unless $path =~ $answer->{path};
+    return $self->_answered($answer);
+  }
   my $response = eval {
     return $self->_api( $request, $method, $path, \%query, $body ) if $path =~ m{\A/api/v3/};
     return $self->_oidc( $request, $method, $path, \%query ) if $path =~ m{\A/application/o/};
@@ -270,10 +287,18 @@ sub _empty {
 }
 
 sub _raw {
-  my ( $self, $status, $content, $type ) = @_;
-  my $response = HTTP::Response->new( $status, 'Status '.$status, [ 'Content-Type' => $type ] );
+  my ( $self, $status, $content, $type, @header ) = @_;
+  my $response = HTTP::Response->new( $status, 'Status '.$status, [ 'Content-Type' => $type, @header ] );
   $response->content($content);
   return $response;
+}
+
+# the answer a test asked for: a hash is JSON, a string is the body as it is
+sub _answered {
+  my ( $self, $answer ) = @_;
+  my ( $status, $body, @header ) = ( $answer->{status}, $answer->{body}, @{ $answer->{header} } );
+  return $self->_json( $status, $body, @header ) if ref $body;
+  return $self->_raw( $status, defined $body ? $body : '', 'text/html; charset=utf-8', @header );
 }
 
 sub _missing { my ( $self, $model ) = @_; $self->_json( 404, { detail => 'No '.$model.' matches the given query.' } ) }

@@ -107,10 +107,13 @@ sub api_url { $_[0]->base_url.'/api/v3' }
 =cut
 
 sub call_f {
-  my ( $self, $method, $path, $body ) = @_;
+  my ( $self, $method, $path, $body, %opt ) = @_;
   return $self->fail_validation( __PACKAGE__.' needs an API token' ) unless $self->has_token && length $self->token;
   $path = '/'.$path unless $path =~ m{\A/};
   my %arg = defined $body ? ( json => $body ) : ();
+  # the flow export answers with YAML and a text/html content type; that one
+  # wants the body as it is
+  $arg{raw} = 1 if $opt{raw};
   my $url = $self->api_url.$path;
   return $self->send_request_f( $method, $url, %arg, bearer => $self->token )->then( sub {
     my ( $result ) = @_;
@@ -132,12 +135,16 @@ sub call_f {
 
     my $result = await $api->call_f( GET => '/core/users/?username=alice' );
     my $result = await $api->call_f( POST => '/core/groups/', { name => 'staff' } );
+    my $result = await $api->call_f( GET => '/flows/instances/probe/export/', undef, raw => 1 );
 
 One request against the API, as C<call> in L<WWW::Authentik::API>. Fails with
 L<Net::Async::Authentik::Error::API> for a redirect (3xx) as well as for 400
 and above: the REST API does not redirect, so a redirect means a proxy or a
 wrong C<base_url> sits in front of it, and the message names the C<Location>.
 Mind the trailing slash: authentik answers a path without one with 404.
+
+C<< raw => 1 >> takes the body as it is, without the check for JSON that every
+other call gets. The flow export needs it: authentik answers that one with YAML.
 
 =cut
 
@@ -496,7 +503,7 @@ sub find_flow_f {
 
 async sub export_flow_f {
   my ( $self, $slug ) = @_;
-  return ( await $self->call_f( GET => '/flows/instances/'.$self->_esc($slug).'/export/' ) )->{content};
+  return ( await $self->call_f( GET => '/flows/instances/'.$self->_esc($slug).'/export/', undef, raw => 1 ) )->{content};
 }
 
 =method list_flows_f

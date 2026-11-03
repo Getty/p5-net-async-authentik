@@ -191,12 +191,17 @@ sub jwks_f {
 
 async sub _fetch_jwks_f {
   my ( $self ) = @_;
-  my $uri  = await $self->jwks_uri_f;
-  my $data = ( await $self->send_request_f( GET => $uri ) )->{data};
-  # without this the cache stays empty and every verification fetches again,
-  # which is what the sibling above already guards against
-  die $self->validation_error_class->new( message => 'the keys of '.$self->_url.' came back as no JSON object' )
-    unless ref $data eq 'HASH';
+  my $uri    = await $self->jwks_uri_f;
+  my $result = await $self->send_request_f( GET => $uri );
+  my $data   = $result->{data};
+  # an answer that carries no keys is a page from something in front of
+  # authentik, not an empty key set. Caching it would throw every token
+  # away later with a key lookup error
+  die $self->api_error_class->new(
+    message     => 'GET '.$uri.' answered '.$result->{status}.' without keys',
+    http_status => $result->{status},
+    api_message => 'the JWKS answer carries no keys',
+  ) unless ref $data eq 'HASH' && ref $data->{keys} eq 'ARRAY';
   return $self->_jwks($data);
 }
 
@@ -207,6 +212,10 @@ async sub _fetch_jwks_f {
 
 The application's public signing keys, kept after the first fetch. Callers
 asking while a fetch is under way share it.
+
+An answer that carries no keys fails the future with an API error that names
+the method, the URL and the status, and nothing is cached. A token is never
+rejected because of it.
 
 =cut
 
@@ -320,8 +329,8 @@ async sub introspect_f {
   return await $_[0]->fail_validation('introspect_f: the arguments after the first 1 do not make pairs') unless $ok;
   my ( $self, $token ) = @_;
   my %client = %$pairs;
-  return await $self->_token_call_f( await( $self->introspection_endpoint_f ),
-    { token => $token, defined $client{token_type_hint} ? ( token_type_hint => $client{token_type_hint} ) : () }, %client );
+  return ( await $self->_token_call_f( await( $self->introspection_endpoint_f ),
+    { token => $token, defined $client{token_type_hint} ? ( token_type_hint => $client{token_type_hint} ) : () }, %client ) )->{data} // {};
 }
 
 async sub revoke_f {
@@ -345,8 +354,8 @@ async sub device_authorization_f {
   my ( $self ) = @_;
   my %arg = %$pairs;
   my $endpoint = await $self->device_endpoint_f;
-  return await $self->_token_call_f( $endpoint,
-    { defined $arg{scope} ? ( scope => $arg{scope} ) : () }, %arg );
+  return ( await $self->_token_call_f( $endpoint,
+    { defined $arg{scope} ? ( scope => $arg{scope} ) : () }, %arg ) )->{data} // {};
 }
 
 =method userinfo_f
@@ -399,8 +408,19 @@ the discovery document.
 
 async sub _grant_f {
   my ( $self, $type, $fields, %arg ) = @_;
-  return await $self->_token_call_f( await( $self->token_endpoint_f ),
+  my $url    = await $self->token_endpoint_f;
+  my $result = await $self->_token_call_f( $url,
     { grant_type => $type, map { $_ => $arg{$_} } grep { defined $arg{$_} } @$fields }, %arg );
+  my $data = $result->{data};
+  # a token endpoint that answers without a token: a proxy's page, a portal
+  # in front of it. The caller would send an empty Bearer and find out much
+  # later, somewhere else.
+  die $self->api_error_class->new(
+    message     => 'POST '.$url.' answered '.$result->{status}.' without an access_token',
+    http_status => $result->{status},
+    api_message => 'no access_token in the answer',
+  ) unless ref $data eq 'HASH' && $data->{access_token};
+  return $data;
 }
 
 async sub _token_call_f {
@@ -411,7 +431,18 @@ async sub _token_call_f {
     client_id => $arg{client_id},
     defined $arg{client_secret} ? ( client_secret => $arg{client_secret} ) : ()
   );
-  return ( await $self->send_request_f( POST => $url, form => \%form ) )->{data} // {};
+  my $result = await $self->send_request_f( POST => $url, form => \%form );
+  # the user agent follows no redirect, and the token endpoint never answers
+  # one itself: a 3xx means something in front of authentik took the request,
+  # and no token came back
+  die $self->api_error_class->new(
+    message     => 'POST '.$url.' was redirected: '.$result->{status}
+      .( defined $result->{location} ? ' to '.$result->{location} : '' )
+      .' - check base_url',
+    http_status => $result->{status},
+    api_message => 'redirected'.( defined $result->{location} ? ' to '.$result->{location} : '' ),
+  ) if $result->{status} >= 300;
+  return $result;
 }
 
 1;
