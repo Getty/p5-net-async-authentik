@@ -1,6 +1,9 @@
 Revision history for Net-Async-Authentik
 
 {{$NEXT}}
+    - Requires WWW::Authentik 0.002: call_f hands the raw option to its
+      read_response, and only that version fails a 2xx answer that carries no
+      JSON with Net::Async::Authentik::Error::API
     - The token endpoint is checked: a redirect or an answer without a token
       is an error that names the status, the method and the path; mirrors
       WWW::Authentik::OIDC
