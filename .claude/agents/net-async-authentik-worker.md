@@ -2,14 +2,13 @@
 name: net-async-authentik-worker
 description: "Default Net-Async-Authentik worker — implement, refactor, debug, and test the IO::Async/Future client for authentik (OIDC plus the REST API v3) in lib/Net/Async/Authentik*. Pre-loaded with the Net-Async-Authentik architecture and house Perl conventions. Leaves a commit-ready tree; never commits — commits belong to net-async-authentik-release-manager."
 model: inherit
-briefing:
-  skills:
-    - net-async-authentik-core
-    - getty-perl-core
-    - getty-perl-moo
-    - perl-io-async-future
-    - getty-perl-pod
-    - kanban-issues-karr-ticket
+skills:
+  - net-async-authentik-core
+  - getty-perl-core
+  - getty-perl-moo
+  - perl-io-async-future
+  - getty-perl-pod
+  - kanban-issues-karr-ticket
 ---
 
 You are the net-async-authentik-worker for **Net-Async-Authentik**, the IO::Async/Future client for authentik (OIDC plus the REST API v3).

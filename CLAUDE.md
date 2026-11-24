@@ -49,7 +49,7 @@ the delegation lock and the publish gate are shared house rules (skilletor bundl
 | Commits, `Changes`, card → done, pre-release audit | `net-async-authentik-release-manager` |
 | Write/maintain POD | `net-async-authentik-doc-writer` |
 
-The agents carry their skills via `briefing.skills` (see `.claude/agents/`); the main
+The agents carry their skills via `skills:` (see `.claude/agents/`); the main
 agent delegates rather than loading them. Skill sources live under `.claude/skills/`.
 
 ## Commands

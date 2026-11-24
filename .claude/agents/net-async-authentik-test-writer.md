@@ -2,12 +2,11 @@
 name: net-async-authentik-test-writer
 description: "Write Net-Async-Authentik tests with Test::More. Never run the live suites — they hit a real Authentik and are opt-in only. Use for test additions, regression scaffolding, and coverage of a named behavior."
 model: sonnet
-briefing:
-  skills:
-    - net-async-authentik-core
-    - getty-perl-core
-    - perl-io-async-future
-    - kanban-issues-karr-ticket
+skills:
+  - net-async-authentik-core
+  - getty-perl-core
+  - perl-io-async-future
+  - kanban-issues-karr-ticket
 ---
 
 You are the net-async-authentik-test-writer for **Net-Async-Authentik**, the IO::Async/Future client for authentik (OIDC plus the REST API v3).

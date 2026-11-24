@@ -16,7 +16,7 @@ map below disagree, the design wins.
 
 Four roles split the work: worker (implement, refactor, debug), test-writer,
 release-manager (commit, `Changes`, card → done), doc-writer (POD). They get the skills
-force-loaded via `briefing.skills`; the orchestrating main agent gets no briefing and
+force-loaded via `skills:`; the orchestrating main agent gets no preloaded skills and
 delegates everything behavior-relevant. Reason: only the briefed agents see the
 sync/async twin invariant and the `WWW::Authentik` dependency contract in context, and an
 unbriefed hand inside `lib/` would break exactly those. Which task goes to which role
